@@ -1,12 +1,3 @@
-/*
-Wetter: Verbindung wiederverwenden - Verwende eine persistente Verbindung mit Keep-Alive:
-Wetter: Chunked-Encoding vermeiden - Wenn der Server Chunked-Encoding nutzt, kann man mit Stream direkt die Antwort lesen
-Wetter: Timeout für HTTP-Anfragen setzen
-Wetter: Max 1kbyte empfangen
-
-WIFI: Deaktivieren wenn in Config Seite
-WIFI: Falls sich das WiFi trennt, automatische Wiederverbindung:  WiFi.disconnect() und WiFi.reconnect()
-*/
 
 #include <Arduino.h>
 #include <ArduinoJson.h>
@@ -48,6 +39,16 @@ int time_offset = 0;
 // NTP and time client
 WiFiUDP ntpUDP;
 NTPClient timeClient(ntpUDP);
+
+enum WiFiState {
+  DISCONNECTED,
+  CONNECTING,
+  CONNECTED,
+  RECONNECTING
+};
+WiFiState wifi_state = DISCONNECTED;
+unsigned long last_connect_attempt = 0;
+unsigned long connect_start_time = 0;
 
 // Weather data variables
 String metar_url;
@@ -110,14 +111,7 @@ void load_configurations() {
   log_i("Loaded configurations: SSID: \"%s\", Password: \"%s\", METAR ID: \"%s\", Time Offset: \"%i\"", ssid, password, metar_id, time_offset);
 }
 
-void connect_to_wifi() {
-  if (strlen(ssid) > 0 && strlen(password) > 0) {
-    log_i("Connecting to SSID: %s", ssid);
-    WiFi.begin(ssid, password);
-  } else {
-    log_i("No saved WiFi credentials found.");
-  }
-}
+
 
 // Event handler for settings button
 void ui_event_btnSettings(lv_event_t *e) {
@@ -126,7 +120,6 @@ void ui_event_btnSettings(lv_event_t *e) {
   }
 }
 
-// Event handler for back button in settings
 void ui_event_btnBack(lv_event_t *e) {
   if (lv_event_get_code(e) == LV_EVENT_CLICKED) {
     String tempSsid = lv_textarea_get_text(ui_taSSID);
@@ -139,11 +132,58 @@ void ui_event_btnBack(lv_event_t *e) {
     strlcpy(metar_id, rawMetar.substring(0, 4).c_str(), sizeof(metar_id));
     time_offset = lv_textarea_get_text(ui_taTimeOffset) ? strtol(lv_textarea_get_text(ui_taTimeOffset), nullptr, 10) : 0;
     save_configurations();
-    WiFi.begin(ssid, password);
     timeClient.setTimeOffset(time_offset);
     lv_disp_load_scr(ui_scrMain);
   }
 }
+
+void wifi_state_machine_cb(lv_timer_t *timer) {
+  lv_obj_t *current_screen = lv_disp_get_scr_act(NULL);
+  if (current_screen == ui_scrSetting) {
+    if (WiFi.status() == WL_CONNECTED) {
+      WiFi.disconnect();
+    }
+    wifi_state = DISCONNECTED;
+    return;
+  }
+  if (current_screen == ui_scrMain) {
+    switch (wifi_state) {
+      case DISCONNECTED:
+        // Wait 5 seconds before attempting to connect
+        if (millis() - last_connect_attempt >= 5000) {
+          WiFi.begin(ssid, password);
+          connect_start_time = millis();
+          last_connect_attempt = millis();
+          wifi_state = CONNECTING;
+        }
+        break;
+      case CONNECTING:
+        if (WiFi.status() == WL_CONNECTED) {
+          wifi_state = CONNECTED;
+        }
+        else if (millis() - connect_start_time >= 10000) {
+          WiFi.disconnect();
+          wifi_state = DISCONNECTED;
+        }
+        break;
+      case CONNECTED:
+        if (WiFi.status() != WL_CONNECTED) {
+          wifi_state = RECONNECTING;
+          last_connect_attempt = millis();
+        }
+        break;
+      case RECONNECTING:
+        if (millis() - last_connect_attempt >= 5000) {
+          WiFi.reconnect();
+          connect_start_time = millis();
+          last_connect_attempt = millis();
+          wifi_state = CONNECTING;
+        }
+        break;
+    }
+  }
+}
+
 
 // Check and update WiFi connection status
 void check_connection(lv_timer_t *timer) {
@@ -418,11 +458,11 @@ void setup() {
   smartdisplay_lcd_set_backlight(1.0);
   load_configurations();
   WiFi.mode(WIFI_STA);
-  connect_to_wifi();
   ui_init();
   lv_timer_create(check_connection, 500, NULL);
   lv_timer_create(update_time_cb, 1000, NULL);
   lv_timer_create(update_weather_cb, 60000, NULL);
+  lv_timer_create(wifi_state_machine_cb, 1000, NULL);
   timeClient.setTimeOffset(time_offset);
   timeClient.begin();
 }
