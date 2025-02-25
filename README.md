@@ -10,7 +10,7 @@ https://registry.platformio.org/libraries/lvgl/lvgl<br>
 https://docs.platformio.org/en/latest/what-is-platformio.html<br>
 
 
-## Install on Linux
+## Install Platformio on Linux
 ```
 curl -fsSL -o get-platformio.py https://raw.githubusercontent.com/platformio/platformio-core-installer/master/get-platformio.py'''
 python3 get-platformio.py
