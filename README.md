@@ -23,7 +23,9 @@ ln -s ~/.platformio/penv/bin/piodebuggdb ~/.local/bin/piodebuggdb
 ```
 ## Compile bare metal on Linux
 ```
-platformio run -e esp32-8048S043C
+git clone https://github.com/OttoMeister/Platformio-ESP32-8048S043C
+cd Platformio-ESP32-8048S043C
+platformio run -e esp32-8048S043C --verbose
 platformio run -e esp32-8048S043C --upload-port  /dev/ttyUSB0 -t upload
 platformio run -e esp32-8048S043C --monitor-port /dev/ttyUSB0 -t monitor
 ```
