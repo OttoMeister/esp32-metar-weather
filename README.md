@@ -28,6 +28,7 @@ pio settings set check_platformio_interval 9999
 git clone https://github.com/OttoMeister/esp32-metar-weather
 cd esp32-metar-weather/
 cd Platformio-ESP32-8048S043C
+pluma src/main.cpp platformio.ini include/lv_conf.h esp32-8048S043C.json README.md &
 platformio run -e esp32-8048S043C 
 platformio run -e esp32-8048S043C --upload-port  /dev/ttyUSB0 -t upload
 platformio run -e esp32-8048S043C --monitor-port /dev/ttyUSB0 -t monitor
