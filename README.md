@@ -10,7 +10,7 @@ https://github.com/lvgl/lv_port_esp32<br>
 https://github.com/platformio/platformio-core<br>
 
 
-## Install Platformio bare metal on Linux (no IDE)
+## Install PlatformIO bare metal on Linux (no IDE)
 ```
 curl -fsSL -o get-platformio.py https://raw.githubusercontent.com/platformio/platformio-core-installer/master/get-platformio.py'''
 python3 get-platformio.py
@@ -20,12 +20,15 @@ export PATH=$PATH:$HOME/.local/bin
 ln -s ~/.platformio/penv/bin/platformio ~/.local/bin/platformio
 ln -s ~/.platformio/penv/bin/pio ~/.local/bin/pio
 ln -s ~/.platformio/penv/bin/piodebuggdb ~/.local/bin/piodebuggdb
+pio settings set enable_telemetry no
+pio settings set check_platformio_interval 9999
 ```
 ## Compile bare metal on Linux
 ```
-git clone https://github.com/OttoMeister/Platformio-ESP32-8048S043C
+git clone https://github.com/OttoMeister/esp32-metar-weather
+cd esp32-metar-weather/
 cd Platformio-ESP32-8048S043C
-platformio run -e esp32-8048S043C --verbose
+platformio run -e esp32-8048S043C 
 platformio run -e esp32-8048S043C --upload-port  /dev/ttyUSB0 -t upload
 platformio run -e esp32-8048S043C --monitor-port /dev/ttyUSB0 -t monitor
 ```
