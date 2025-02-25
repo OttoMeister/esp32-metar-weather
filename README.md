@@ -2,7 +2,7 @@
 Platformio esp32 Sunton 8048S043C ESP32S3 ST7262 800x400 Ak: cheap yellow display.
 ESP32 development board-8M PSRAM 16M Flash, standard 4.3-inch TFT screen and with Capacitive touch.
 <br><br>
-Thanks to the efforts of these individuals and many others, programming on Suntown displays has become very easy. Here, I used the 8048S043C to create a small demo project featuring WiFi, MRTAR weather information, and NTP time. The configuration is done via the touchscreen and stored in non-volatile memory.
+Thanks to the efforts of these individuals and many others, programming on Suntown displays has become very easy. Here, I used the 8048S043C to create a small demo project featuring WiFi, METAR (Meteorological Aerodrome Report) weather data, and NTP time. The configuration is done via the touchscreen and stored in non-volatile memory.
 <br><br>
 https://github.com/rzeldent/esp32-smartdisplay<br>
 https://github.com/rzeldent/platformio-espressif32-sunton<br>
