@@ -314,16 +314,13 @@ void weatherData() {
     http.setReuse(true); 
     http.setTimeout(5000);
     isInitialized = true;
-  } else {
-    http.begin(metar_url.c_str()); 
-  }
+  } else http.begin(metar_url.c_str());   
   log_i("Sending HTTP request to: %s", metar_url.c_str());
   int httpCode = http.GET();
   if (httpCode > 0) {
     String payload = http.getString();
-    if (payload.length() > 2048) { 
+    if (payload.length() > 2048) 
       payload = payload.substring(0, 2048);
-    }
     log_i("Response received: %s", payload.c_str());
     JsonDocument doc;
     DeserializationError error = deserializeJson(doc, payload);
@@ -341,12 +338,8 @@ void weatherData() {
       const float KNOTS_TO_KMH = 1.852f;
       wind_speed_kmh = wind_speed_knots * KNOTS_TO_KMH;
       strlcpy(airport_name, doc[0]["name"] | "--", sizeof(airport_name));
-    } else {
-      log_i("Error parsing JSON data");
-    }
-  } else {
-    log_i("Error retrieving METAR data");
-  }
+    } else log_i("Error parsing JSON data");
+  } else log_i("Error retrieving METAR data");
 }
 
 // Format epoch time to date string
