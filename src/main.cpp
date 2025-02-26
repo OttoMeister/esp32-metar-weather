@@ -73,9 +73,8 @@ String normalizeString(String str) {
     {"ú", "u"},  {"ù", "u"},  {"û", "u"},  {"ü", "ue"}, {"Ú", "U"},  {"Ù", "U"},  {"Û", "U"},  {"Ü", "Ue"},
     {"ñ", "n"},  {"Ñ", "N"},  {"ç", "c"},  {"Ç", "C"},  {"ÿ", "y"},  {"Ÿ", "Y"},  {"ß", "ss"}, {"ẞ", "SS"}};
   String result = str;
-  for (auto &pair : replacements) {
+  for (auto &pair : replacements) 
     result.replace(pair[0], pair[1]);
-  }
   return result;
 }
 
@@ -113,9 +112,8 @@ void load_configurations() {
 
 // Event handler for settings button
 void ui_event_btnSettings(lv_event_t *e) {
-  if (lv_event_get_code(e) == LV_EVENT_CLICKED) {
+  if (lv_event_get_code(e) == LV_EVENT_CLICKED) 
     lv_disp_load_scr(ui_scrSetting);
-  }
 }
 
 void ui_event_btnBack(lv_event_t *e) {
@@ -206,9 +204,8 @@ void ui_event_taTimeOffset(lv_event_t *e) { show_keyboard(e, ui_taTimeOffset); }
 
 // Handle keyboard events
 void ui_event_kb(lv_event_t *e) {
-  if (lv_event_get_code(e) == LV_EVENT_READY || lv_event_get_code(e) == LV_EVENT_CANCEL) {
+  if (lv_event_get_code(e) == LV_EVENT_READY || lv_event_get_code(e) == LV_EVENT_CANCEL) 
     lv_obj_add_flag(ui_kb, LV_OBJ_FLAG_HIDDEN);
-  }
 }
 
 // Create a screen with black background
@@ -259,9 +256,7 @@ lv_obj_t *create_textarea(lv_obj_t *parent, int x, int y, int w, int h, bool one
   lv_obj_set_pos(ta, x, y);
   lv_textarea_set_one_line(ta, one_line);
   lv_textarea_set_password_mode(ta, password_mode);
-  if (event_cb) {
-    lv_obj_add_event_cb(ta, event_cb, LV_EVENT_ALL, NULL);
-  }
+  if (event_cb) lv_obj_add_event_cb(ta, event_cb, LV_EVENT_ALL, NULL);
   lv_textarea_set_text(ta, initial_text);
   lv_obj_set_style_bg_color(ta, lv_color_black(), LV_PART_MAIN);
   lv_obj_set_style_text_color(ta, lv_color_white(), LV_PART_MAIN);
@@ -350,15 +345,11 @@ String getFormattedDate(unsigned long epochtime) {
   unsigned long year = 1970;
   uint8_t month;
   static const uint8_t monthDays[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
-  while ((days += (LEAP_YEAR(year) ? 366 : 365)) <= rawTime) {
-    year++;
-  }
+  while ((days += (LEAP_YEAR(year) ? 366 : 365)) <= rawTime) year++;
   rawTime -= days - (LEAP_YEAR(year) ? 366 : 365);
   for (month = 0; month < 12; month++) {
     uint8_t monthLength = (month == 1 && LEAP_YEAR(year)) ? 29 : monthDays[month];
-    if (rawTime < monthLength) {
-      break;
-    }
+    if (rawTime < monthLength)  break;
     rawTime -= monthLength;
   }
   String monthStr = ++month < 10 ? "0" + String(month) : String(month);
@@ -406,9 +397,7 @@ void update_weather_cb(lv_timer_t *timer) {
     log_i("Wind speed: %d km/h", (int)wind_speed_kmh);
     log_i("Pressure: %d hPa", (int)pressure);
     log_i("Data age: %u min", data_age_min);
-  } else {
-    update_label(lblDataAge, "Data Age: -- min");
-  }
+  } else update_label(lblDataAge, "Data Age: -- min");
 }
 
 // Initialize hardware and software
