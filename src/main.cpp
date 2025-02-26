@@ -151,8 +151,7 @@ void wifi_management_cb(lv_timer_t *timer) {
       case CONNECTING:
         if (WiFi.status() == WL_CONNECTED) {
           wifi_state = CONNECTED;
-          log_i("WiFi connected to %s", WiFi.SSID().c_str());
-          update_label(lblWifiStatus, "WiFi: Connected to %s", WiFi.SSID().c_str());
+          log_i("WiFi: Connected to %s with %d dBm", WiFi.SSID().c_str(), WiFi.RSSI()); 
         } else if (millis() - connect_start_time >= 10000) {
           log_i("WiFi connection timeout");
           WiFi.disconnect();
@@ -165,7 +164,7 @@ void wifi_management_cb(lv_timer_t *timer) {
           wifi_state = RECONNECTING;
           log_i("WiFi connection lost");
           update_label(lblWifiStatus, "WiFi: Connection Lost");
-        } else update_label(lblWifiStatus, "WiFi: Connected to %s", WiFi.SSID().c_str());
+        } else update_label(lblWifiStatus, "WiFi: Connected to %s", WiFi.SSID().c_str()); 
         break;
       case RECONNECTING:
         if (millis() - last_connect_attempt >= 10000) {
@@ -299,62 +298,83 @@ void ui_scrSetting_screen_init(void) {
   lv_obj_add_event_cb(ui_kb, ui_event_kb, LV_EVENT_ALL, NULL);
 }
 
-HTTPClient http; 
 void weatherData() {
-  if (WiFi.status() != WL_CONNECTED) return;
-  static bool isInitialized = false;
-  metar_url = "https://aviationweather.gov/api/data/metar?ids=" + String(metar_id) + "&format=json";
-  if (!isInitialized) {
-    http.begin(metar_url.c_str());
-    http.setReuse(true); 
-    http.setTimeout(5000);
-    isInitialized = true;
-  } else http.begin(metar_url.c_str());   
-  log_i("Sending HTTP request to: %s", metar_url.c_str());
+  HTTPClient http;
+  http.setTimeout(10000);  
+  WiFiClientSecure client;
+  client.setInsecure();    
+  char urlBuffer[100];
+  snprintf(urlBuffer, sizeof(urlBuffer), "https://aviationweather.gov/api/data/metar?ids=%s&format=json", metar_id);
+  log_i("Fetching METAR from: %s via HTTPS", urlBuffer);
+  if (!http.begin(client, urlBuffer)) {
+    log_i("Failed to initialize HTTPS connection");
+    http.end();
+    return;
+  }
+  http.setReuse(false); 
+  log_i("Sending GET request...");
   int httpCode = http.GET();
-  if (httpCode > 0) {
-    String payload = http.getString();
-    if (payload.length() > 2048) 
-      payload = payload.substring(0, 2048);
-    log_i("Response received: %s", payload.c_str());
-    JsonDocument doc;
-    DeserializationError error = deserializeJson(doc, payload);
-    if (!error) {
-      temperature = doc[0]["temp"];
-      dew_point = doc[0]["dewp"];
-      wind_speed_knots = doc[0]["wspd"];
-      pressure = doc[0]["altim"];
-      obsTime = doc[0]["obsTime"];
-      const float MAGNUS_COEFFICIENT = 17.625f;
-      const float MAGNUS_CONSTANT = 243.04f;
-      float tempTerm = expf(MAGNUS_COEFFICIENT * temperature / (MAGNUS_CONSTANT + temperature));
-      float dewTerm = expf(MAGNUS_COEFFICIENT * dew_point / (MAGNUS_CONSTANT + dew_point));
-      relative_humidity = 100 * (dewTerm / tempTerm);
-      const float KNOTS_TO_KMH = 1.852f;
-      wind_speed_kmh = wind_speed_knots * KNOTS_TO_KMH;
-      strlcpy(airport_name, doc[0]["name"] | "--", sizeof(airport_name));
-    } else log_i("Error parsing JSON data");
-  } else log_i("Error retrieving METAR data");
+  log_i("HTTP status code: %d", httpCode);
+  if (httpCode != 200) {
+    String errorResponse = http.getString();
+    log_i("HTTP request failed with code: %d, Response: %s", httpCode, errorResponse.substring(0, 200).c_str());
+    http.end();
+    return;
+  }
+  String responseStr = http.getString();
+  if (responseStr.length() == 0) {
+    log_i("Empty response received");
+    http.end();
+    return;
+  }
+  http.end();
+  JsonDocument doc;
+  DeserializationError error = deserializeJson(doc, responseStr);
+  if (error) {
+    log_i("JSON parsing failed: %s", error.c_str());
+    return;
+  }
+  if (!doc.is<JsonArray>() || doc.as<JsonArray>().size() == 0) {
+    log_i("Invalid METAR JSON structure: not an array or empty");
+    return;
+  }
+  JsonObject obj = doc[0].as<JsonObject>();
+  if (obj["icaoId"].isNull() || obj["temp"].isNull()) {
+    log_i("Invalid METAR JSON structure: missing icaoId or temp");
+    return;
+  }
+  const char* newId = obj["icaoId"];
+  if (strcmp(newId, metar_id) != 0) {
+    log_i("METAR ID mismatch: %s vs %s", newId, metar_id);
+    return;
+  }
+  temperature = obj["temp"] | 0;
+  dew_point = obj["dewp"] | 0;
+  wind_speed_knots = obj["wspd"] | 0;
+  pressure = obj["altim"] | 0;
+  obsTime = obj["obsTime"] | 0;
+  wind_speed_kmh = wind_speed_knots * 1.852;
+  float t = temperature, d = dew_point;
+  relative_humidity = 100 * exp((17.625 * d) / (243.04 + d)) / exp((17.625 * t) / (243.04 + t));
+  const char* name = obj["name"] | "Unknown";
+  strncpy(airport_name, name, sizeof(airport_name) - 1);
+  airport_name[sizeof(airport_name) - 1] = '\0';
+  metar_url = urlBuffer;
+  log_i("METAR updated: T=%d°C, DP=%d°C, WS=%dkn, P=%dhPa, RH=%d%%",
+        temperature, dew_point, wind_speed_knots, pressure, relative_humidity);
 }
 
-// Format epoch time to date string
+// convert epoch time to string with format "dd-mm-yyyy".
 String getFormattedDate(unsigned long epochtime) {
 #define LEAP_YEAR(Y) ((Y > 0) && !(Y % 4) && ((Y % 100) || !(Y % 400)))
-  unsigned long rawTime = epochtime / 86400L;
-  unsigned long days = 0;
-  unsigned long year = 1970;
-  uint8_t month;
-  static const uint8_t monthDays[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
-  while ((days += (LEAP_YEAR(year) ? 366 : 365)) <= rawTime) year++;
-  rawTime -= days - (LEAP_YEAR(year) ? 366 : 365);
-  for (month = 0; month < 12; month++) {
-    uint8_t monthLength = (month == 1 && LEAP_YEAR(year)) ? 29 : monthDays[month];
-    if (rawTime < monthLength)  break;
-    rawTime -= monthLength;
-  }
-  String monthStr = ++month < 10 ? "0" + String(month) : String(month);
-  String dayStr = ++rawTime < 10 ? "0" + String(rawTime) : String(rawTime);
-  return dayStr + "-" + monthStr + "-" + year;
+  unsigned long days = epochtime / 86400L, d = 0;
+  int y = 1970, m = 0;
+  static const uint8_t md[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+  while ((d += LEAP_YEAR(y) ? 366 : 365) <= days) y++;
+  days -= d - (LEAP_YEAR(y) ? 366 : 365);
+  for (; m < 12 && days >= (m == 1 && LEAP_YEAR(y) ? 29 : md[m]); m++) days -= (m == 1 && LEAP_YEAR(y) ? 29 : md[m]);
+  return String(days + 1 < 10 ? "0" + String(days + 1) : String(days + 1)) + "-" + 
+         String(++m < 10 ? "0" + String(m) : String(m)) + "-" + y;
 }
 
 // Initialize UI with theme and screens
@@ -381,7 +401,8 @@ void update_time_cb(lv_timer_t *timer) {
 
 // Update weather data display
 void update_weather_cb(lv_timer_t *timer) {
-  if (WiFi.status() != WL_CONNECTED) return; // Exit if not connected to WiFi
+  if (WiFi.status() != WL_CONNECTED) return;
+  if (WiFi.localIP() == IPAddress(0, 0, 0, 0))  return;
   weatherData();
   update_label(lblTemperature, "Temperature: %d °C", temperature);
   update_label(lblHumidity, "Humidity: %d %%", relative_humidity);
