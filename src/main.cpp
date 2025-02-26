@@ -111,8 +111,6 @@ void load_configurations() {
   log_i("Loaded configurations: SSID: \"%s\", Password: \"%s\", METAR ID: \"%s\", Time Offset: \"%i\"", ssid, password, metar_id, time_offset);
 }
 
-
-
 // Event handler for settings button
 void ui_event_btnSettings(lv_event_t *e) {
   if (lv_event_get_code(e) == LV_EVENT_CLICKED) {
@@ -137,82 +135,58 @@ void ui_event_btnBack(lv_event_t *e) {
   }
 }
 
-void wifi_state_machine_cb(lv_timer_t *timer) {
+// Manages WiFi connections and updates the user interface based on the current WiFi state
+void wifi_management_cb(lv_timer_t *timer) {
   lv_obj_t *current_screen = lv_disp_get_scr_act(NULL);
-  if (current_screen == ui_scrSetting) {
-    if (WiFi.status() == WL_CONNECTED) {
-      WiFi.disconnect();
-    }
-    wifi_state = DISCONNECTED;
-    return;
-  }
   if (current_screen == ui_scrMain) {
     switch (wifi_state) {
       case DISCONNECTED:
-        // Wait 5 seconds before attempting to connect
-        if (millis() - last_connect_attempt >= 5000) {
+        if (millis() - last_connect_attempt >= 10000) {
+          log_i("Starting WiFi connection to %s", ssid);
           WiFi.begin(ssid, password);
           connect_start_time = millis();
           last_connect_attempt = millis();
           wifi_state = CONNECTING;
-        }
+          update_label(lblWifiStatus, "WiFi: Connecting...");
+        } else update_label(lblWifiStatus, "WiFi: Disconnected");
         break;
       case CONNECTING:
         if (WiFi.status() == WL_CONNECTED) {
           wifi_state = CONNECTED;
-        }
-        else if (millis() - connect_start_time >= 10000) {
+          log_i("WiFi connected to %s", WiFi.SSID().c_str());
+          update_label(lblWifiStatus, "WiFi: Connected to %s", WiFi.SSID().c_str());
+        } else if (millis() - connect_start_time >= 10000) {
+          log_i("WiFi connection timeout");
           WiFi.disconnect();
           wifi_state = DISCONNECTED;
-        }
+          update_label(lblWifiStatus, "WiFi: Connection Failed");
+        } else update_label(lblWifiStatus, "WiFi: Connecting...");
         break;
       case CONNECTED:
         if (WiFi.status() != WL_CONNECTED) {
           wifi_state = RECONNECTING;
-          last_connect_attempt = millis();
-        }
+          log_i("WiFi connection lost");
+          update_label(lblWifiStatus, "WiFi: Connection Lost");
+        } else update_label(lblWifiStatus, "WiFi: Connected to %s", WiFi.SSID().c_str());
         break;
       case RECONNECTING:
-        if (millis() - last_connect_attempt >= 5000) {
+        if (millis() - last_connect_attempt >= 10000) {
+          log_i("Attempting to reconnect WiFi");
           WiFi.reconnect();
           connect_start_time = millis();
           last_connect_attempt = millis();
           wifi_state = CONNECTING;
-        }
+          update_label(lblWifiStatus, "WiFi: Reconnecting...");
+        } else update_label(lblWifiStatus, "WiFi: Connection Lost");
         break;
     }
-  }
-}
-
-
-// Check and update WiFi connection status
-void check_connection(lv_timer_t *timer) {
-  const char *status_text;
-  switch (WiFi.status()) {
-    case WL_CONNECTED:
-      status_text = ("Connected to " + WiFi.SSID()).c_str();
-      break;
-    case WL_CONNECT_FAILED:
-      status_text = "Connection Failed";
-      break;
-    case WL_NO_SSID_AVAIL:
-      status_text = "No SSID Available";
-      break;
-    case WL_DISCONNECTED:
-      status_text = "Disconnected";
-      break;
-    case WL_CONNECTION_LOST:
-      status_text = "Connection Lost";
-      break;
-    case WL_IDLE_STATUS:
-      status_text = "Connecting...";
-      break;
-    default:
-      status_text = "Unknown Status";
-      break;
-  }
-  if (lv_disp_get_scr_act(NULL) == ui_scrMain) {
-    update_label(lblWifiStatus, "WiFi: %s", status_text);
+  } else if (current_screen == ui_scrSetting) {
+    if (WiFi.status() == WL_CONNECTED) {
+      log_i("Disconnecting WiFi (settings screen active)");
+      WiFi.disconnect();
+    }
+    wifi_state = DISCONNECTED;
+    update_label(lblWifiStatus, "WiFi: Disconnected");
   }
 }
 
@@ -330,18 +304,28 @@ void ui_scrSetting_screen_init(void) {
   lv_obj_add_event_cb(ui_kb, ui_event_kb, LV_EVENT_ALL, NULL);
 }
 
-// Fetch and parse weather data
+HTTPClient http; 
 void weatherData() {
-  if (WiFi.status() != WL_CONNECTED) return; // Exit if not connected to WiFi
-  HTTPClient http;
+  if (WiFi.status() != WL_CONNECTED) return;
+  static bool isInitialized = false;
   metar_url = "https://aviationweather.gov/api/data/metar?ids=" + String(metar_id) + "&format=json";
-  http.begin(metar_url.c_str());
+  if (!isInitialized) {
+    http.begin(metar_url.c_str());
+    http.setReuse(true); 
+    http.setTimeout(5000);
+    isInitialized = true;
+  } else {
+    http.begin(metar_url.c_str()); 
+  }
   log_i("Sending HTTP request to: %s", metar_url.c_str());
   int httpCode = http.GET();
   if (httpCode > 0) {
-    JsonDocument doc;
     String payload = http.getString();
+    if (payload.length() > 2048) { 
+      payload = payload.substring(0, 2048);
+    }
     log_i("Response received: %s", payload.c_str());
+    JsonDocument doc;
     DeserializationError error = deserializeJson(doc, payload);
     if (!error) {
       temperature = doc[0]["temp"];
@@ -363,7 +347,6 @@ void weatherData() {
   } else {
     log_i("Error retrieving METAR data");
   }
-  http.end();
 }
 
 // Format epoch time to date string
@@ -459,10 +442,9 @@ void setup() {
   load_configurations();
   WiFi.mode(WIFI_STA);
   ui_init();
-  lv_timer_create(check_connection, 500, NULL);
   lv_timer_create(update_time_cb, 1000, NULL);
   lv_timer_create(update_weather_cb, 60000, NULL);
-  lv_timer_create(wifi_state_machine_cb, 1000, NULL);
+  lv_timer_create(wifi_management_cb, 1000, NULL);
   timeClient.setTimeOffset(time_offset);
   timeClient.begin();
 }
