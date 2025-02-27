@@ -1,4 +1,5 @@
-
+//platformio run -e esp32-8048S043C -t upload
+//platformio run -e esp32-8048S043C -t monitor
 #include <Arduino.h>
 #include <ArduinoJson.h>
 #include <HTTPClient.h>
@@ -7,6 +8,9 @@
 #include <WiFi.h>
 #include <esp32_smartdisplay.h>
 #include <lvgl.h>
+#include <math.h>
+#include <cmath>
+#include <strings.h>
 
 Preferences preferences;
 
@@ -33,8 +37,8 @@ lv_obj_t *ui_kb;
 // Configuration variables
 char ssid[64] = "";
 char password[64] = "";
-char metar_id[10] = "";
-int time_offset = 0;
+char metar_id[10] = ""; // search here:  "https://en.wikipedia.org/wiki/ICAO_airport_code"
+long time_offset = 0;
 
 // NTP and time client
 WiFiUDP ntpUDP;
@@ -59,8 +63,9 @@ int pressure = 0;
 int relative_humidity = 0;
 int wind_speed_kmh = 0;
 char airport_name[100];
-unsigned long data_age_min = 0;
 unsigned long obsTime = 0;
+float lat = 0, lon= 0;
+
 
 // Normalize string by replacing accented characters
 String normalizeString(String str) {
@@ -133,8 +138,8 @@ void ui_event_btnBack(lv_event_t *e) {
   }
 }
 
-// Manages WiFi connections and updates the user interface based on the current WiFi state
-void wifi_management_cb(lv_timer_t *timer) {
+
+void wifi_management_cb(lv_timer_t *timer) {         
   lv_obj_t *current_screen = lv_disp_get_scr_act(NULL);
   if (current_screen == ui_scrMain) {
     switch (wifi_state) {
@@ -298,6 +303,18 @@ void ui_scrSetting_screen_init(void) {
   lv_obj_add_event_cb(ui_kb, ui_event_kb, LV_EVENT_ALL, NULL);
 }
 
+// Initialize UI with theme and screens
+void ui_init(void) {
+  lv_disp_t *display = lv_display_get_default();
+  lv_theme_t *theme = lv_theme_default_init(display, lv_palette_main(LV_PALETTE_BLUE), lv_palette_main(LV_PALETTE_RED), true, LV_FONT_DEFAULT);
+  lv_disp_set_theme(display, theme);
+  lv_obj_set_style_bg_color(lv_scr_act(), lv_color_black(), LV_PART_MAIN);
+  lv_obj_set_style_text_color(lv_scr_act(), lv_color_white(), LV_PART_MAIN);
+  ui_scrMain_screen_init();
+  ui_scrSetting_screen_init();
+  lv_disp_load_scr(ui_scrMain);
+}
+
 void weatherData() {
   HTTPClient http;
   http.setTimeout(10000);  
@@ -353,6 +370,8 @@ void weatherData() {
   wind_speed_knots = obj["wspd"] | 0;
   pressure = obj["altim"] | 0;
   obsTime = obj["obsTime"] | 0;
+  lat = obj["lat"].as<float>();
+  lon = obj["lon"].as<float>();
   wind_speed_kmh = wind_speed_knots * 1.852;
   float t = temperature, d = dew_point;
   relative_humidity = 100 * exp((17.625 * d) / (243.04 + d)) / exp((17.625 * t) / (243.04 + t));
@@ -360,34 +379,101 @@ void weatherData() {
   strncpy(airport_name, name, sizeof(airport_name) - 1);
   airport_name[sizeof(airport_name) - 1] = '\0';
   metar_url = urlBuffer;
-  log_i("METAR updated: T=%d°C, DP=%d°C, WS=%dkn, P=%dhPa, RH=%d%%",
-        temperature, dew_point, wind_speed_knots, pressure, relative_humidity);
+  log_i("METAR updated: T=%d°C, DP=%d°C, WS=%dkn, P=%dhPa, RH=%d%% Lat=%.3f, Lon=%.3f",
+        temperature, dew_point, wind_speed_knots, pressure, relative_humidity, lat, lon);
 }
 
 // convert epoch time to string with format "dd-mm-yyyy".
-String getFormattedDate(unsigned long epochtime) {
 #define LEAP_YEAR(Y) ((Y > 0) && !(Y % 4) && ((Y % 100) || !(Y % 400)))
-  unsigned long days = epochtime / 86400L, d = 0;
-  int y = 1970, m = 0;
-  static const uint8_t md[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
-  while ((d += LEAP_YEAR(y) ? 366 : 365) <= days) y++;
-  days -= d - (LEAP_YEAR(y) ? 366 : 365);
-  for (; m < 12 && days >= (m == 1 && LEAP_YEAR(y) ? 29 : md[m]); m++) days -= (m == 1 && LEAP_YEAR(y) ? 29 : md[m]);
-  return String(days + 1 < 10 ? "0" + String(days + 1) : String(days + 1)) + "-" + 
-         String(++m < 10 ? "0" + String(m) : String(m)) + "-" + y;
+String getFormattedDate(unsigned long epochtime) {
+    unsigned long days = epochtime / 86400L, d = 0;
+    int y = 1970, m = 0;
+    static const uint8_t md[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+    while ((d += LEAP_YEAR(y) ? 366 : 365) <= days) y++;
+    days -= d - (LEAP_YEAR(y) ? 366 : 365);
+    for (; m < 12 && days >= (m == 1 && LEAP_YEAR(y) ? 29 : md[m]); m++)
+        days -= (m == 1 && LEAP_YEAR(y) ? 29 : md[m]); 
+    char date_buf[20]; 
+    snprintf(date_buf, sizeof(date_buf), "%02lu-%02d-%04d", days + 1, m + 1, y);
+    return String(date_buf);
 }
 
-// Initialize UI with theme and screens
-void ui_init(void) {
-  lv_disp_t *display = lv_display_get_default();
-  lv_theme_t *theme = lv_theme_default_init(display, lv_palette_main(LV_PALETTE_BLUE), lv_palette_main(LV_PALETTE_RED), true, LV_FONT_DEFAULT);
-  lv_disp_set_theme(display, theme);
-  lv_obj_set_style_bg_color(lv_scr_act(), lv_color_black(), LV_PART_MAIN);
-  lv_obj_set_style_text_color(lv_scr_act(), lv_color_white(), LV_PART_MAIN);
-  ui_scrMain_screen_init();
-  ui_scrSetting_screen_init();
-  lv_disp_load_scr(ui_scrMain);
+String getFormattedTime(unsigned long epochtime) {
+    unsigned long t = epochtime % 86400;
+    char buf[9];
+    snprintf(buf, sizeof(buf), "%02u:%02u:%02u", (unsigned int)(t / 3600), 
+             (unsigned int)((t % 3600) / 60), (unsigned int)(t % 60));
+    return String(buf);
 }
+
+// rise = true = sunrise // rise = false = sunset
+String sun_event1(unsigned long t, float lat, float lon, bool rise, long time_offset) {
+  log_i("Time: %s %s", getFormattedTime(t), getFormattedDate(t));
+  log_i("Sun_event input: t=%lu, lat=%.3f, lon=%.3f, rise=%d, time_offset=%ld", t, lat, lon, rise, time_offset);
+  static const uint8_t md[]={31,28,31,30,31,30,31,31,30,31,30,31};
+  unsigned long days=t/86400L,sec=t%86400L,dc=0;
+  int y=1970,m=0,d;
+  while(days>=dc+(LEAP_YEAR(y)?366:365)) dc+=(LEAP_YEAR(y)?366:365),y++;
+  d=days-dc;for(int i=0;d>=(i==1&&LEAP_YEAR(y)?29:md[i]);m++) d-=(i==1&&LEAP_YEAR(y)?29:md[i]);
+  int doy=d+1;for(int i=0;i<m;i++) doy+=(i==1&&LEAP_YEAR(y)?29:md[i]);
+  double gamma=2*PI*(doy-1)/365.25,EoT=-7.655*sin(gamma)+9.873*sin(2*gamma+3.588);
+  double decl=23.45*sin(2*PI*(doy-80)/365.25);
+  double ha=acos((sin(-0.833*DEG_TO_RAD)-sin(lat*DEG_TO_RAD)*sin(decl*DEG_TO_RAD))/
+                (cos(lat*DEG_TO_RAD)*cos(decl*DEG_TO_RAD)))*RAD_TO_DEG;
+  double local_solar_time=12+(rise?-1:1)*(ha/15.0);
+   double utc_time=fmod(local_solar_time-(lon/15.0)-(EoT/60.0)+24.0,24.0);
+  t=dc*86400L+(unsigned long)(utc_time*3600.0);
+  if(sec>(t%86400L)) {t+=86400L;if(++d>(m==1&&LEAP_YEAR(y)?29:md[m])) {d=1;if(++m>12) m=1,y++;}}
+  t+=time_offset;
+  char buf[64];snprintf(buf,sizeof(buf),"%02d:%02d:%02d %02d-%02d-%04d",(int)(t%86400L)/3600,(int)(t%3600L)/60,(int)t%60,d,m+1,y);
+  return String(buf);
+}
+
+
+// rise = true = sunrise // rise = false = sunset
+// output is in past and shoud be in the future:
+String sun_event2(unsigned long t, float lat, float lon, bool rise, long time_offset) {
+  log_i("Time: %s %s", getFormattedTime(t), getFormattedDate(t));
+  log_i("Sun_event input: t=%lu, lat=%.3f, lon=%.3f, rise=%d, time_offset=%ld", t, lat, lon, rise, time_offset);
+  static const uint8_t md[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+  unsigned long days = t / 86400L, sec = t % 86400L;
+  unsigned long dc = 0;
+  int y = 1970, m = 0;
+  while (days >= dc + (LEAP_YEAR(y) ? 366 : 365)) {
+    dc += (LEAP_YEAR(y) ? 366 : 365);
+    y++;
+  }
+  int remaining_days = days - dc;
+  while (remaining_days >= (m == 1 && LEAP_YEAR(y) ? 29 : md[m])) {
+    remaining_days -= (m == 1 && LEAP_YEAR(y) ? 29 : md[m]);
+    m++;
+  }
+  int d = remaining_days + 1, doy = d;
+  for (int i = 0; i < m; i++) doy += (i == 1 && LEAP_YEAR(y) ? 29 : md[i]);
+  double gamma = 2 * PI * (doy - 1) / 365.25;
+  double EoT = -7.655 * sin(gamma) + 9.873 * sin(2 * gamma + 3.588); 
+  double decl = 23.45 * sin(2 * PI * (doy - 80) / 365.25);
+  double ha = acos((sin(-0.833 * DEG_TO_RAD) - sin(lat * DEG_TO_RAD) * sin(decl * DEG_TO_RAD)) /
+                   (cos(lat * DEG_TO_RAD) * cos(decl * DEG_TO_RAD))) * RAD_TO_DEG;
+  double local_solar_time = 12 + (rise ? -1 : 1) * (ha / 15.0);
+  double utc_time = fmod(local_solar_time - (lon / 15.0) - (EoT / 60.0) + 24.0, 24.0);
+  t = dc * 86400L + (unsigned long)(utc_time * 3600.0);
+  if (sec > (t % 86400L)) {
+    t += 86400L; 
+    if (++d > (m == 1 && LEAP_YEAR(y) ? 29 : md[m])) {
+      d = 1;
+      if (++m > 12) {
+        m = 1;
+        y++;
+      }
+    }
+  }
+  t += time_offset;
+    char buf[64];
+    snprintf(buf, sizeof(buf), "%02d:%02d:%02d %02d-%02d-%04d", (int)(t % 86400L) / 3600, (int)(t % 3600L) / 60, (int)t % 60, d, m + 1, y);
+    return String(buf);
+}
+
 
 // Update time and date display
 void update_time_cb(lv_timer_t *timer) {
@@ -395,7 +481,7 @@ void update_time_cb(lv_timer_t *timer) {
   timeClient.update();
   if (timeClient.isTimeSet()) {
     unsigned long epochtime = timeClient.getEpochTime();
-    update_label(lblTimeDate, "Time: %s", (timeClient.getFormattedTime() + "  " + getFormattedDate(epochtime)).c_str());
+    update_label(lblTimeDate, "Time: %s %s", getFormattedTime(epochtime).c_str(), getFormattedDate(epochtime).c_str());
   }
 }
 
@@ -411,13 +497,22 @@ void update_weather_cb(lv_timer_t *timer) {
   update_label(lblAirportName, "Airport: %s", normalizeString(airport_name).c_str());
   if (timeClient.isTimeSet() && obsTime > 0) {
     unsigned long epochtime = timeClient.getEpochTime();
-    data_age_min = (epochtime - time_offset - obsTime) / 60;
+    unsigned long data_age_min = (epochtime - time_offset - obsTime) / 60;
     update_label(lblDataAge, "Data Age: %lu min", data_age_min);
     log_i("Temperature: %d", (int)temperature);
     log_i("Relative humidity: %d%%", (int)relative_humidity);
     log_i("Wind speed: %d km/h", (int)wind_speed_kmh);
     log_i("Pressure: %d hPa", (int)pressure);
     log_i("Data age: %u min", data_age_min);
+    log_i("Epochtime: %u sec", epochtime);
+    String sunrise = sun_event1(epochtime, lat, lon, true, time_offset);
+    String sunset = sun_event1(epochtime, lat, lon, false, time_offset);
+    log_i("1Next sunrise: %s", sunrise.c_str());
+    log_i("1Next sunset: %s", sunset.c_str());    
+    sunrise = sun_event2(epochtime, lat, lon, true, time_offset);
+    sunset = sun_event2(epochtime, lat, lon, false, time_offset);
+    log_i("2Next sunrise: %s", sunrise.c_str());
+    log_i("2Next sunset: %s", sunset.c_str()); 
   } else update_label(lblDataAge, "Data Age: -- min");
 }
 
