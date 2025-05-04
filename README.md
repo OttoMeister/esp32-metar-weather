@@ -10,7 +10,7 @@ https://github.com/lvgl/lv_port_esp32<br>
 https://github.com/platformio/platformio-core<br>
 
 
-## Install PlatformIO bare metal on Linux (no IDE)
+## Install PlatformIO on Linux (no IDE)
 ```
 curl -fsSL -o get-platformio.py https://raw.githubusercontent.com/platformio/platformio-core-installer/master/get-platformio.py
 python3 get-platformio.py
@@ -23,7 +23,7 @@ ln -s ~/.platformio/penv/bin/piodebuggdb ~/.local/bin/piodebuggdb
 pio settings set enable_telemetry no
 pio settings set check_platformio_interval 9999
 ```
-## Compile bare metal on Linux
+## Compile with PlatformIO on Linux
 ```
 git clone https://github.com/OttoMeister/esp32-metar-weather
 cd esp32-metar-weather/
