@@ -433,8 +433,6 @@ String sun_event(unsigned long t, float lat, float lon, bool rise, long time_off
   return String(buf);
 }
 
-
-
 // Update time and date display
 void update_time_cb(lv_timer_t *timer) {
   if (WiFi.status() != WL_CONNECTED) return; // Exit if not connected to WiFi
@@ -510,3 +508,4 @@ void loop() {
   lv_last_tick = now;
   lv_timer_handler();
 }
+
