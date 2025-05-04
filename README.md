@@ -8,7 +8,7 @@ https://github.com/rzeldent/esp32-smartdisplay<br>
 https://github.com/rzeldent/platformio-espressif32-sunton<br>
 https://github.com/lvgl/lv_port_esp32<br>
 https://github.com/platformio/platformio-core<br>
-
+https://github.com/witnessmenow/ESP32-Cheap-Yellow-Display<br>
 
 ## Install PlatformIO on Linux (no IDE)
 ```
