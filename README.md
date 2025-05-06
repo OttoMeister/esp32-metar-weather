@@ -27,10 +27,56 @@ pio settings set check_platformio_interval 9999
 ```
 git clone https://github.com/OttoMeister/esp32-metar-weather
 cd esp32-metar-weather/
-pluma src/main.cpp platformio.ini include/lv_conf.h esp32-8048S043C.json README.md &
 platformio run -e esp32-8048S043C 
 platformio run -e esp32-8048S043C --upload-port  /dev/ttyUSB0 -t upload
 platformio run -e esp32-8048S043C --monitor-port /dev/ttyUSB0 -t monitor
 ```
+## Install PlatformIO on Win11 (no IDE)
+PlatformIO on Windows Command Prompt 
+Install Python:
+```
+winget install Python.Python.3.13
+REM Restart Windows Command Prompt 
+python -V
+python.exe -m pip install --upgrade pip
+```
+Install Git:
+```
+cd %USERPROFILE%\Desktop
+winget install git.git
+REM restart Windows Command Prompt 
+git --version
+```
+Install PlatformIO:
+```
+pip install platformio
+pio --version
+pio settings set enable_telemetry no
+pio settings set check_platformio_interval 9999
+```
+Install CP210x driver:
+```
+cd %USERPROFILE%\Desktop
+curl -L --fail -o cp210x.zip https://www.silabs.com/documents/public/software/CP210x_Windows_Drivers.zip
+mkdir cp210x
+tar -xf cp210x.zip -C cp210x
+start /wait cp210x\CP210xVCPInstaller_x64.exe /S
+```
+Install CH340 (WCH) Chips
+```
+cd %USERPROFILE%\Desktop
+curl -L --fail -o CH341SER.exe https://www.wch.cn/download/file?id=65  --silent
+start /wait CH341SER.exe /S
+```
+## Compile with PlatformIO on Win11
+```
+cd %USERPROFILE%\Desktop
+git clone https://github.com/OttoMeister/esp32-metar-weather
+cd esp32-metar-weather/
+platformio run -e esp32-8048S043C 
+platformio run -e esp32-8048S043C  --upload-port COM1 -t upload
+platformio run -e esp32-8048S043C  --monitor-port COM1 -t monitor
+```
+
 
 
