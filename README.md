@@ -32,7 +32,7 @@ platformio run -e esp32-8048S043C --upload-port  /dev/ttyUSB0 -t upload
 platformio run -e esp32-8048S043C --monitor-port /dev/ttyUSB0 -t monitor
 ```
 ## Install PlatformIO on Win11 (no IDE)
-PlatformIO on Windows Command Prompt 
+Windows Command Prompt <br>
 Install Python:
 ```
 winget install Python.Python.3.13
