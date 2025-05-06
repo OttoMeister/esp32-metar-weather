@@ -73,7 +73,7 @@ cd %USERPROFILE%\Desktop
 git clone https://github.com/OttoMeister/esp32-metar-weather
 cd esp32-metar-weather/
 platformio run -e esp32-8048S043C 
-platformio run -e esp32-8048S043C  --upload-port COM1 -t upload
+platformio run -e esp32-8048S043C  --upload-port COM1  -t upload
 platformio run -e esp32-8048S043C  --monitor-port COM1 -t monitor
 ```
 
