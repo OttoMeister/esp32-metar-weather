@@ -56,7 +56,7 @@ pio settings set check_platformio_interval 9999
 Install CP210x driver:
 ```
 cd %USERPROFILE%\Desktop
-curl -L --fail -o cp210x.zip https://www.silabs.com/documents/public/software/CP210x_Windows_Drivers.zip
+curl -L --fail -o cp210x.zip https://www.silabs.com/documents/public/software/CP210x_Windows_Drivers.zip --silent
 mkdir cp210x
 tar -xf cp210x.zip -C cp210x
 start /wait cp210x\CP210xVCPInstaller_x64.exe /S
