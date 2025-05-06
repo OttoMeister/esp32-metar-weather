@@ -31,7 +31,7 @@ platformio run -e esp32-8048S043C
 platformio run -e esp32-8048S043C --upload-port  /dev/ttyUSB0 -t upload
 platformio run -e esp32-8048S043C --monitor-port /dev/ttyUSB0 -t monitor
 ```
-## Install PlatformIO on Win11 (no IDE)
+## Install PlatformIO on Win10-11 (no IDE)
 Windows Command Prompt <br>
 Install Python:
 ```
@@ -67,7 +67,7 @@ cd %USERPROFILE%\Desktop
 curl -L --fail -o CH341SER.exe https://www.wch.cn/download/file?id=65  --silent
 start /wait CH341SER.exe /S
 ```
-## Compile with PlatformIO on Win11
+## Compile with PlatformIO on Win10-11
 ```
 cd %USERPROFILE%\Desktop
 git clone https://github.com/OttoMeister/esp32-metar-weather
