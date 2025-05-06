@@ -42,7 +42,6 @@ python.exe -m pip install --upgrade pip
 ```
 Install Git:
 ```
-cd %USERPROFILE%\Desktop
 winget install git.git
 REM restart Windows Command Prompt 
 git --version
