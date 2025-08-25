@@ -30,9 +30,11 @@ pio settings set check_platformio_interval 9999
 ```
 git clone https://github.com/OttoMeister/esp32-metar-weather
 cd esp32-metar-weather/
-platformio run -e esp32-8048S043C 
-platformio run -e esp32-8048S043C --upload-port  /dev/ttyUSB0 -t upload
-platformio run -e esp32-8048S043C --monitor-port /dev/ttyUSB0 -t monitor
+pio pkg update -e esp32-8048S043C
+pio run -t clean -e esp32-8048S043C
+pio run -e esp32-8048S043C
+pio run -e esp32-8048S043C --upload-port  /dev/ttyUSB0 -t upload
+pio run -e esp32-8048S043C --monitor-port /dev/ttyUSB0 -t monitor
 ```
 ## Install PlatformIO on Win10-11 (no IDE)
 Windows Command Prompt <br>
