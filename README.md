@@ -77,11 +77,9 @@ start /wait CH341SER.exe /S
 cd %USERPROFILE%\Desktop
 git clone https://github.com/OttoMeister/esp32-metar-weather
 cd esp32-metar-weather/
-pio pkg update -e esp32-8048S043C
-pio run -t clean -e esp32-8048S043C
-pio run -e esp32-8048S043C
-pio run -e esp32-8048S043C --upload-port  /dev/ttyUSB0 -t upload
-pio run -e esp32-8048S043C --monitor-port /dev/ttyUSB0 -t monitor
+platformio run -e esp32-8048S043C 
+platformio run -e esp32-8048S043C  --upload-port COM1  -t upload
+platformio run -e esp32-8048S043C  --monitor-port COM1 -t monitor
 ```
 
 
