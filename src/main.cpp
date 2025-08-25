@@ -33,7 +33,8 @@ lv_obj_t *lblAirportName;
 lv_obj_t *lblDataAge;
 lv_obj_t *lblSunrise;
 lv_obj_t *lblSunset;
-lv_obj_t *lblWeatherIcon;
+lv_obj_t *lblBigTime;
+lv_obj_t *lblBigDate;
 
 // UI elements for settings screen
 lv_obj_t *ui_scrSetting;
@@ -242,20 +243,15 @@ lv_obj_t *create_card(lv_obj_t *parent, int x, int y, int w, int h) {
 }
 
 // Create a styled label with icon
-lv_obj_t *create_styled_label(lv_obj_t *parent, int x, int y, const char *text, const char *icon = nullptr, bool large = false) {
+lv_obj_t *create_styled_label(lv_obj_t *parent, int x, int y, const char *text, const char *icon = nullptr) {
   lv_obj_t *label = lv_label_create(parent);
   lv_obj_set_pos(label, x, y);
-  
   char full_text[200];
   if (icon) snprintf(full_text, sizeof(full_text), "%s %s", icon, text);
-  else strlcpy(full_text, text, sizeof(full_text));
-  
+  else strlcpy(full_text, text, sizeof(full_text)); 
   lv_label_set_text(label, full_text);
   lv_obj_set_style_text_color(label, lv_color_white(), LV_PART_MAIN);
-  
-  if (large) lv_obj_set_style_text_font(label, &lv_font_montserrat_16, LV_PART_MAIN);
-  else lv_obj_set_style_text_font(label, LV_FONT_DEFAULT, LV_PART_MAIN);
-  
+  lv_obj_set_style_text_font(label, LV_FONT_DEFAULT, LV_PART_MAIN);
   return label;
 }
 
@@ -343,26 +339,37 @@ void ui_scrMain_screen_init(void) {
   create_gradient_button(header_card,  650, 0, 110, 40, "Settings", LV_SYMBOL_SETTINGS, ui_event_btnSettings);
   // Airport info card
   lv_obj_t *airport_card = create_card(ui_scrMain, 5, 90, 790, 45);
-  lblAirportName = create_styled_label(airport_card, 0, -5, "Airport: --", LV_SYMBOL_HOME, true);
+  lblAirportName = create_styled_label(airport_card, 0, -5, "Airport: --", LV_SYMBOL_HOME);
   lblDataAge = create_styled_label(airport_card, 400, -5, "Data Age: -- min", LV_SYMBOL_REFRESH);  
   // Weather data card - left side
   lv_obj_t *weather_card = create_card(ui_scrMain, 5, 140, 390, 185);
-  lv_obj_t *weather_title = create_styled_label(weather_card, 0, -5, "Weather Data", LV_SYMBOL_EYE_OPEN, true);
+  lv_obj_t *weather_title = create_styled_label(weather_card, 0, -5, "Weather Data", LV_SYMBOL_EYE_OPEN);
   lv_obj_set_style_text_color(weather_title, lv_color_hex(0x3366ff), LV_PART_MAIN);
-  lblWeatherIcon = create_styled_label(weather_card, 320, -5, LV_SYMBOL_EYE_OPEN, nullptr, true);
   lblTemperature = create_styled_label(weather_card, 0, 25, "Temperature: -- °C", LV_SYMBOL_BATTERY_3);
   lblHumidity = create_styled_label(weather_card, 0, 55, "Humidity: -- %", LV_SYMBOL_TINT);
   lblWindSpeed = create_styled_label(weather_card, 0, 85, "Wind Speed: -- km/h", LV_SYMBOL_GPS);
   lblPressure = create_styled_label(weather_card, 0, 115, "Pressure: -- hPa", LV_SYMBOL_POWER);
   // Sun times card - right side
   lv_obj_t *sun_card = create_card(ui_scrMain, 405, 140, 390, 185);
-  lv_obj_t *sun_title = create_styled_label(sun_card, 0, -5, "Sun Times", LV_SYMBOL_WIFI, true);
+  lv_obj_t *sun_title = create_styled_label(sun_card, 0, -5, "Sun Times", LV_SYMBOL_WIFI);
   lv_obj_set_style_text_color(sun_title, lv_color_hex(0xffa500), LV_PART_MAIN);
   lblSunrise = create_styled_label(sun_card, 0, 25, "Sunrise: --", LV_SYMBOL_UP);
   lblSunset = create_styled_label(sun_card, 0, 55, "Sunset: --", LV_SYMBOL_DOWN);
   lv_obj_t *info_label1 = create_styled_label(sun_card, 0, 85, "Daylight Info", nullptr);
   lv_obj_set_style_text_color(info_label1, lv_color_hex(0x888888), LV_PART_MAIN);
-  // Status bar at bottom
+   // Big time date card 
+  lv_obj_t *big_time_date_card = create_card(ui_scrMain, 5, 330, 790, 95);
+  lblBigTime = lv_label_create(big_time_date_card);
+  lv_obj_align(lblBigTime, LV_ALIGN_TOP_LEFT, 0, 0);
+  lv_obj_set_style_text_color(lblBigTime, lv_color_white(), LV_PART_MAIN);
+  lv_obj_set_style_text_font(lblBigTime, &lv_font_montserrat_48, LV_PART_MAIN);
+  lv_label_set_text(lblBigTime, "--:--:--"); 
+  lblBigDate = lv_label_create(big_time_date_card);
+  lv_obj_align(lblBigDate,  LV_ALIGN_TOP_LEFT, 250, 0);
+  lv_obj_set_style_text_color(lblBigDate, lv_color_white(), LV_PART_MAIN);
+  lv_obj_set_style_text_font(lblBigDate, &lv_font_montserrat_48, LV_PART_MAIN);
+  lv_label_set_text(lblBigDate, "--.--.----"); 
+   // Status card 
   lv_obj_t *status_card = create_card(ui_scrMain, 5, 430, 790, 45);
   lv_obj_t *status_label = create_styled_label(status_card, 0, -5, "ESP32 METAR Weather Station", LV_SYMBOL_EYE_OPEN);
   lv_obj_set_style_text_color(status_label, lv_color_hex(0x3366ff), LV_PART_MAIN);
@@ -379,7 +386,7 @@ void ui_scrSetting_screen_init(void) {
   lv_obj_set_style_bg_grad_dir(ui_scrSetting, LV_GRAD_DIR_VER, LV_PART_MAIN);
   // Setting Header card 
   lv_obj_t *header_card = create_card(ui_scrSetting, 5, 5, 790, 70);
-  lv_obj_t *title = create_styled_label(header_card, 0, 5, "Weather Station Settings", LV_SYMBOL_SETTINGS, true);
+  lv_obj_t *title = create_styled_label(header_card, 0, 5, "Weather Station Settings", LV_SYMBOL_SETTINGS);
   lv_obj_set_style_text_color(title, lv_color_hex(0x3366ff), LV_PART_MAIN);
   create_gradient_button(header_card, 650, -5, 110, 40, "Save", LV_SYMBOL_SAVE, ui_event_btnBack);
   // Settings card 
@@ -398,7 +405,7 @@ void ui_scrSetting_screen_init(void) {
   ui_taTimeOffset = create_modern_textarea(form_card, 360, 100, 300, 35, true, false, ui_event_taTimeOffset, String(time_offset).c_str(), "UTC offset");
   // Help card 
   lv_obj_t *help_card = create_card(ui_scrSetting, 5, 430, 790, 45);
-  lv_obj_t *help_title = create_styled_label(help_card, 0, -5, "Help:", nullptr, true);
+  lv_obj_t *help_title = create_styled_label(help_card, 0, -5, "Help:", nullptr);
   lv_obj_set_style_text_color(help_title, lv_color_hex(0x3366ff), LV_PART_MAIN);
   lv_obj_t *help_text = create_styled_label(help_card, 50, -5, "METAR ID: Find airport codes at wikipedia.org/wiki/ICAO_airport_code", nullptr);
   lv_obj_set_style_text_color(help_text, lv_color_hex(0x888888), LV_PART_MAIN); 
@@ -536,10 +543,12 @@ String sun_event(unsigned long t, float lat, float lon, bool rise, long time_off
 void update_time_cb(lv_timer_t *timer) {
   if (WiFi.status() != WL_CONNECTED) return; // Exit if not connected to WiFi
   timeClient.update();
-  if (timeClient.isTimeSet()) {
-    unsigned long epochtime = timeClient.getEpochTime();
+  unsigned long epochtime = timeClient.getEpochTime();
     update_label(lblTimeDate, LV_SYMBOL_LIST " %s %s", getFormattedTime(epochtime).c_str(), getFormattedDate(epochtime).c_str());
-  }
+    if (lblBigTime && lblBigDate) {
+      lv_label_set_text_fmt(lblBigTime, "%s", getFormattedTime(epochtime).c_str());
+      lv_label_set_text_fmt(lblBigDate, "%s", getFormattedDate(epochtime).c_str());
+    }
 }
 
 // Get weather icon based on conditions
@@ -557,9 +566,6 @@ void update_weather_cb(lv_timer_t *timer) {
   if (WiFi.localIP() == IPAddress(0, 0, 0, 0))  return;
   weatherData();
   
-  // Update weather icon based on conditions
-  const char* weather_icon = getWeatherIcon(temperature, relative_humidity, wind_speed_kmh);
-  update_label(lblWeatherIcon, "%s", weather_icon);
   
   // Update weather data with icons
   update_label(lblTemperature, LV_SYMBOL_BATTERY_3 " %d°C", temperature);
