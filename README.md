@@ -13,7 +13,6 @@ https://github.com/witnessmenow/ESP32-Cheap-Yellow-Display<br>
 ## Install PlatformIO on Linux (no IDE)
 ```
 sudo apt install python3-venv build-essential git python3-intelhex
-~/.platformio/penv/bin/pip install intelhex
 curl -fsSL -o get-platformio.py https://raw.githubusercontent.com/platformio/platformio-core-installer/master/get-platformio.py
 python3 get-platformio.py
 curl -fsSL https://raw.githubusercontent.com/platformio/platformio-core/develop/platformio/assets/system/99-platformio-udev.rules | sudo tee /etc/udev/rules.d/99-platformio-udev.rules
@@ -25,6 +24,7 @@ ln -s ~/.platformio/penv/bin/pio ~/.local/bin/pio
 ln -s ~/.platformio/penv/bin/piodebuggdb ~/.local/bin/piodebuggdb
 pio settings set enable_telemetry no
 pio settings set check_platformio_interval 9999
+~/.platformio/penv/bin/pip install intelhex
 ```
 ## Compile with PlatformIO on Linux
 ```
