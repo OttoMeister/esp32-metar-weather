@@ -1,9 +1,9 @@
-//ESP32S board - 8048S043C -  4.3-inch TFT 800x480 - Capacitive touch - 8M PSRAM 16M Flash
-//pio pkg update -e esp32-8048S043C
-//pio run -t clean -e esp32-8048S043C
-//pio run -e esp32-8048S043C
-//platformio run -e esp32-8048S043C --upload-port  /dev/ttyUSB0 -t upload
-//platformio run -e esp32-8048S043C --monitor-port /dev/ttyUSB0 -t monitor
+// ESP32S board - 8048S043C -  4.3-inch TFT 800x480 - Capacitive touch - 8M PSRAM 16M Flash
+// pio pkg update -e esp32-8048S043C
+// pio run -t clean -e esp32-8048S043C
+// pio run -e esp32-8048S043C
+// pio run -e esp32-8048S043C --upload-port  /dev/ttyUSB0 -t upload
+// pio run -e esp32-8048S043C --monitor-port /dev/ttyUSB0 -t monitor
 // https://formatter.org/cpp-formatter
 
 #include <Arduino.h>
@@ -626,8 +626,8 @@ void setup() {
   log_i("Board: %s", BOARD_NAME);
   log_i("SDK version: %s", ESP.getSdkVersion());
   log_i("PSRAM total: %u", ESP.getPsramSize());
-  log_i("PSRAM free: %u", ESP.getFreePsram());
-  log_i("Heap free: %d bytes", ESP.getFreeHeap());
+  log_i("PSRAM free:  %u", ESP.getFreePsram());
+  log_i("Heap free:   %d bytes", ESP.getFreeHeap());
   smartdisplay_init();
   smartdisplay_lcd_set_backlight(1.0);
   load_configurations();
