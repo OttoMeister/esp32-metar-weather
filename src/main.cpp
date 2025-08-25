@@ -1,10 +1,11 @@
-// ESP32S board - 8048S043C -  4.3-inch TFT 800x480 - Capacitive touch - 8M PSRAM 16M Flash
-// pio pkg update -e esp32-8048S043C
-// pio run -t clean -e esp32-8048S043C
-// pio run -e esp32-8048S043C
-// pio run -e esp32-8048S043C --upload-port  /dev/ttyUSB0 -t upload
-// pio run -e esp32-8048S043C --monitor-port /dev/ttyUSB0 -t monitor
-// https://formatter.org/cpp-formatter
+/* ESP32S board - 8048S043C -  4.3-inch TFT 800x480 - Capacitive touch - 8M PSRAM 16M Flash
+pio pkg update -e esp32-8048S043C
+pio run -t clean -e esp32-8048S043C
+pio run -e esp32-8048S043C
+pio run -e esp32-8048S043C --upload-port  /dev/ttyUSB0 -t upload
+pio run -e esp32-8048S043C --monitor-port /dev/ttyUSB0 -t monitor
+https://formatter.org/cpp-formatter
+*/
 
 #include <Arduino.h>
 #include <ArduinoJson.h>
@@ -75,6 +76,7 @@ int wind_speed_kmh = 0;
 char airport_name[100];
 unsigned long obsTime = 0;
 float lat = 0, lon= 0;
+long offset_seconds = 0;
 
 // Normalize string by replacing accented characters
 String normalizeString(String str) {
@@ -446,9 +448,7 @@ void weatherData() {
     return;
   }
   http.setReuse(false); 
-  log_i("Sending GET request...");
   int httpCode = http.GET();
-  log_i("HTTP status code: %d", httpCode);
   if (httpCode != 200) {
     String errorResponse = http.getString();
     log_i("HTTP request failed with code: %d, Response: %s", httpCode, errorResponse.substring(0, 200).c_str());
@@ -498,6 +498,47 @@ void weatherData() {
   metar_url = urlBuffer;
   log_i("METAR updated: T=%d°C, DP=%d°C, WS=%dkn, P=%dhPa, RH=%d%% Lat=%.3f, Lon=%.3f",
         temperature, dew_point, wind_speed_knots, pressure, relative_humidity, lat, lon);
+}
+
+// Returns true if successful, sets offset_seconds
+bool getUtcOffsetFromCoords(float lat, float lon, long &offset_seconds) {
+  HTTPClient http;
+  WiFiClientSecure client;
+  client.setInsecure(); 
+  char url[128];
+  snprintf(url, sizeof(url), 
+    "https://timeapi.io/api/TimeZone/coordinate?latitude=%.5f&longitude=%.5f", lat, lon);
+  log_i("Fetching time offset from: %s via HTTPS", url);
+  if (!http.begin(client, url)) {
+    log_i("Failed to connect to timeapi.io");
+    http.end();
+    return false;
+  }
+  int httpCode = http.GET();
+  if (httpCode != 200) {
+    log_i("timeapi.io returned HTTP %d", httpCode);
+    http.end();
+    return false;
+  }
+  String payload = http.getString();
+  http.end();
+  JsonDocument doc;
+  DeserializationError err = deserializeJson(doc, payload);
+  if (err) {
+    log_i("Failed to parse JSON: %s", err.c_str());
+    return false;
+  }
+  if (!doc["currentUtcOffset"].is<JsonObject>()) {
+    log_i("JSON does not contain valid 'currentUtcOffset' object");
+    return false;
+  }
+  if (!doc["currentUtcOffset"]["seconds"].is<long>()) {
+    log_i("currentUtcOffset does not contain valid 'seconds' field");
+    return false;
+  }
+  offset_seconds = doc["currentUtcOffset"]["seconds"];
+  log_i("UTC Offset for (%.5f, %.5f) is %ld seconds", lat, lon, offset_seconds);
+  return true;
 }
 
 #define LEAP_YEAR(Y) ((Y>0)&&!(Y%4)&&((Y%100)||!(Y%400)))
@@ -551,56 +592,43 @@ void update_time_cb(lv_timer_t *timer) {
     }
 }
 
-// Get weather icon based on conditions
-const char* getWeatherIcon(int temp, int humidity, int wind_speed) {
-  if (temp < 0) return LV_SYMBOL_MINUS; // Cold/Snow
-  else if (humidity > 80) return LV_SYMBOL_TINT; // Rainy/Humid
-  else if (wind_speed > 20) return LV_SYMBOL_GPS; // Windy
-  else if (temp > 25) return LV_SYMBOL_WIFI; // Hot/Sunny
-  else return LV_SYMBOL_EYE_OPEN; // Normal
-}
-
 // Update weather data display with enhanced visuals
 void update_weather_cb(lv_timer_t *timer) {
   if (WiFi.status() != WL_CONNECTED) return;
   if (WiFi.localIP() == IPAddress(0, 0, 0, 0))  return;
   weatherData();
-  
-  
+  // get time offset
+  if (lat == 0 && lon == 0) { log_i("no lat and lon values for getUtcOffsetFromCoords()"); return; }
+  long new_offset;
+  if (getUtcOffsetFromCoords(lat, lon, new_offset)) time_offset = new_offset;
   // Update weather data with icons
   update_label(lblTemperature, LV_SYMBOL_BATTERY_3 " %d°C", temperature);
   update_label(lblHumidity, LV_SYMBOL_TINT " %d%%", relative_humidity);
   update_label(lblWindSpeed, LV_SYMBOL_GPS " %d km/h", wind_speed_kmh);
   update_label(lblPressure, LV_SYMBOL_POWER " %d hPa", pressure);
   update_label(lblAirportName, LV_SYMBOL_HOME " %s", normalizeString(airport_name).c_str());
-  
   if (timeClient.isTimeSet() && obsTime > 0) {
     unsigned long epochtime = timeClient.getEpochTime();
     unsigned long data_age_min = (epochtime - time_offset - obsTime) / 60;
     update_label(lblDataAge, LV_SYMBOL_REFRESH " %lu min ago", data_age_min);
-    
-    log_i("Temperature: %d", (int)temperature);
+      log_i("Temperature: %d", (int)temperature);
     log_i("Relative humidity: %d%%", (int)relative_humidity);
     log_i("Wind speed: %d km/h", (int)wind_speed_kmh);
     log_i("Pressure: %d hPa", (int)pressure);
     log_i("Data age: %u min", data_age_min);
     log_i("Epochtime: %u sec", epochtime);
-    
-    // Calculate and display sunrise/sunset
+      // Calculate and display sunrise/sunset
     if (lat != 0 && lon != 0) {
       String sunrise = sun_event(epochtime, lat, lon, true, time_offset);
       String sunset = sun_event(epochtime, lat, lon, false, time_offset);
-      
-      // Extract just the time portion for display
+          // Extract just the time portion for display
       int space_pos = sunrise.indexOf(' ');
       String sunrise_time = space_pos > 0 ? sunrise.substring(0, space_pos) : sunrise;
       space_pos = sunset.indexOf(' ');
       String sunset_time = space_pos > 0 ? sunset.substring(0, space_pos) : sunset;
-      
-      update_label(lblSunrise, LV_SYMBOL_UP " %s", sunrise_time.c_str());
+          update_label(lblSunrise, LV_SYMBOL_UP " %s", sunrise_time.c_str());
       update_label(lblSunset, LV_SYMBOL_DOWN " %s", sunset_time.c_str());
-      
-      log_i("Next sunrise: %s", sunrise.c_str());
+          log_i("Next sunrise: %s", sunrise.c_str());
       log_i("Next sunset: %s", sunset.c_str());
     } else {
       update_label(lblSunrise, LV_SYMBOL_UP " --:--");
