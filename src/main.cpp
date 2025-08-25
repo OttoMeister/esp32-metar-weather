@@ -1,5 +1,7 @@
-//platformio run -e esp32-8048S043C -t upload         - Screen dimensions: 800x480 
+//ESP32S board - 8048S043C -  4.3-inch TFT 800x480 - Capacitive touch - 8M PSRAM 16M Flash
 //platformio run -e esp32-8048S043C -t monitor
+//platformio run -e esp32-8048S043C --upload-port  /dev/ttyUSB0 -t upload
+//platformio run -e esp32-8048S043C --monitor-port /dev/ttyUSB0 -t monitor
 // https://formatter.org/cpp-formatter
 
 #include <Arduino.h>
@@ -13,6 +15,7 @@
 #include <math.h>
 #include <cmath>
 #include <strings.h>
+#include <esp_heap_caps.h>
 
 Preferences preferences;
 
@@ -615,13 +618,15 @@ void setup() {
   uint8_t macAddr[6];
   WiFi.macAddress(macAddr);
   chipId2 = (macAddr[3] << 16) | (macAddr[4] << 8) | macAddr[5];
+
   log_i("Chip ID1 (EFuse): %u", chipId1);
   log_i("Chip ID2 (Wi-Fi MAC): %u", chipId2);
   log_i("CPU: %s rev%d, CPU Freq: %d Mhz, %d core(s)", ESP.getChipModel(), ESP.getChipRevision(), getCpuFrequencyMhz(), ESP.getChipCores());
   log_i("Board: %s", BOARD_NAME);
-  log_i("Free heap: %d bytes", ESP.getFreeHeap());
-  log_i("Free PSRAM: %d bytes", ESP.getPsramSize());
   log_i("SDK version: %s", ESP.getSdkVersion());
+  log_i("PSRAM total: %u", ESP.getPsramSize());
+  log_i("PSRAM free: %u", ESP.getFreePsram());
+  log_i("Heap free: %d bytes", ESP.getFreeHeap());
   smartdisplay_init();
   smartdisplay_lcd_set_backlight(1.0);
   load_configurations();
