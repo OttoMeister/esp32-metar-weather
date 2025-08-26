@@ -82,7 +82,8 @@ struct WeatherData {
     float lon = 0;    
     unsigned long obsTime = 0;
     unsigned long epochtime = 0;
-    long time_offset = 0;
+    unsigned long TimeOfLastUpdate = 0;
+    long local_time_offset = 0;
     int data_age_min = 0;  
     int temperature = 0;
     int dew_point = 0;
@@ -522,6 +523,7 @@ bool weatherData() {
   weather.airport_name[sizeof(weather.airport_name) - 1] = '\0';
   log_i("METAR updated: T=%d°C, WS=%dkmh, P=%dhPa, RH=%d%% Lat=%.3f,Lon=%.3f",
       weather.temperature, weather.wind_speed_kmh, weather.pressure, weather.relative_humidity, weather.lat, weather.lon);  
+  weather.TimeOfLastUpdate = weather.epochtime;
   return true;
 }
 
@@ -651,22 +653,25 @@ void update_time_cb(lv_timer_t *timer) {
 
 // Update weather data display with enhanced visuals
 void update_weather_cb(lv_timer_t *timer) {
-  weather.weather_is_valid = weatherData();
-  weather.UTC_Offset_is_valid = getUtcOffset(weather.lat, weather.lon, weather.time_offset);
-  if (!weather.UTC_Offset_is_valid) weather.time_offset = 0;
+if (!weather.weather_is_valid || weather.data_age_min > 60 || weather.epochtime - weather.TimeOfLastUpdate > 600) {
+    weather.weather_is_valid = weatherData();
+    weather.UTC_Offset_is_valid = getUtcOffset(weather.lat, weather.lon, weather.local_time_offset);
+    if (weather.UTC_Offset_is_valid) {
+      weather.sunrise = sun_event(weather.epochtime, weather.lat, weather.lon, true, weather.local_time_offset);
+      weather.sunset = sun_event(weather.epochtime, weather.lat, weather.lon, false, weather.local_time_offset);
+      log_i("Next sunrise: %s", weather.sunrise.c_str());
+      log_i("Next sunset: %s", weather.sunset.c_str()); 
+    }   
+    else weather.local_time_offset = 0;
+  }
   // Update weather data with icons
   update_label(ui.lblTemperature, LV_SYMBOL_BATTERY_3 " %d°C", weather.temperature);
   update_label(ui.lblHumidity, LV_SYMBOL_TINT " %d%%", weather.relative_humidity);
   update_label(ui.lblWindSpeed, LV_SYMBOL_GPS " %d km/h", weather.wind_speed_kmh);
   update_label(ui.lblPressure, LV_SYMBOL_POWER " %d hPa", weather.pressure);
   update_label(ui.lblAirportName, LV_SYMBOL_HOME " %s", weather.airport_name);
-    if (weather.weather_is_valid) {
-     
+    if (weather.weather_is_valid && weather.UTC_Offset_is_valid) {
       // Calculate and display sunrise/sunset
-      weather.sunrise = sun_event(weather.epochtime, weather.lat, weather.lon, true, weather.time_offset);
-      weather.sunset = sun_event(weather.epochtime, weather.lat, weather.lon, false, weather.time_offset);
-      log_i("Next sunrise: %s", weather.sunrise.c_str());
-      log_i("Next sunset: %s", weather.sunset.c_str());
       update_label(ui.lblSunrise, LV_SYMBOL_UP " %s", weather.sunrise.c_str());
       update_label(ui.lblSunset, LV_SYMBOL_DOWN " %s", weather.sunset.c_str());
     } else {
