@@ -74,21 +74,24 @@ struct WiFiManagement {
 
 WiFiManagement wifi_mgmt;
 
-struct WeatherData {
+struct WeatherData {    
+    String sunrise;
+    String sunset;
+    char airport_name[100] = "";
+    float lat = 0;
+    float lon = 0;    
+    unsigned long obsTime = 0;
+    unsigned long epochtime = 0;
+    long time_offset = 0;
+    int data_age_min = 0;  
     int temperature = 0;
     int dew_point = 0;
     int wind_speed_knots = 0;
     int pressure = 0;
     int relative_humidity = 0;
     int wind_speed_kmh = 0;
-    char airport_name[100] = "";
-    unsigned long obsTime = 0;
-    float lat = 0;
-    float lon = 0;
     bool weather_is_valid = false;
     bool UTC_Offset_is_valid = false;
-    String sunrise;
-    String sunset;
 };
 
 WeatherData weather;
@@ -458,7 +461,7 @@ bool weatherData() {
   if (WiFi.status() != WL_CONNECTED) return false;
   if (WiFi.localIP() == IPAddress(0, 0, 0, 0))  return false;
   snprintf(urlBuffer, sizeof(urlBuffer), "https://aviationweather.gov/api/data/metar?ids=%s&format=json", config.metar_id);
-  log_i("Fetching METAR from: %s via HTTPS", urlBuffer);
+  log_i("Fetching METAR from: %s", urlBuffer);
   if (!http.begin(client, urlBuffer)) {
     log_i("Failed to initialize HTTPS connection");
     http.end();
@@ -506,6 +509,10 @@ bool weatherData() {
   weather.obsTime = obj["obsTime"] | 0;
   weather.lat = obj["lat"].as<float>();
   weather.lon = obj["lon"].as<float>();
+  if (weather.lat == 0 && weather.lon == 0) {
+    log_i("Invalid lat and lon position");
+    return false;
+   } 
   weather.wind_speed_kmh = weather.wind_speed_knots * 1.852;
   float t = weather.temperature, d = weather.dew_point;
   weather.relative_humidity = 100 * exp((17.625 * d) / (243.04 + d)) / exp((17.625 * t) / (243.04 + t));
@@ -513,8 +520,8 @@ bool weatherData() {
   String normalized = normalizeString(name);
   strncpy(weather.airport_name, normalized.c_str(), sizeof(weather.airport_name) - 1);
   weather.airport_name[sizeof(weather.airport_name) - 1] = '\0';
-  log_i("METAR updated: T=%d°C, DP=%d°C, WS=%dkn, P=%dhPa, RH=%d%% Lat=%.3f, Lon=%.3f",
-        weather.temperature, weather.dew_point, weather.wind_speed_knots, weather.pressure, weather.relative_humidity, weather.lat, weather.lon);
+  log_i("METAR updated: T=%d°C, WS=%dkmh, P=%dhPa, RH=%d%% Lat=%.3f,Lon=%.3f",
+      weather.temperature, weather.wind_speed_kmh, weather.pressure, weather.relative_humidity, weather.lat, weather.lon);  
   return true;
 }
 
@@ -529,7 +536,7 @@ bool getUtcOffset(float lat, float lon, long &offset_seconds) {
   if (lat == 0 && lon == 0) { log_i("no lat and lon values for getUtcOffset()"); return false; }
   snprintf(url, sizeof(url), 
     "https://timeapi.io/api/TimeZone/coordinate?latitude=%.5f&longitude=%.5f", lat, lon);
-  log_i("Fetching time offset from: %s via HTTPS", url);
+  log_i("Fetching time offset from: %s", url);
   if (!http.begin(client, url)) {
     log_i("Failed to connect to timeapi.io");
     http.end();
@@ -578,61 +585,86 @@ String getFormattedTime(unsigned long e){
  return String(b);
 }
 
-// rise = true = sunrise // rise = false = sunset
 String sun_event(unsigned long t, float lat, float lon, bool rise, long time_offset) {
   log_i("Time: %s %s", getFormattedTime(t).c_str(), getFormattedDate(t).c_str());
   log_i("Sun_event input: t=%lu, lat=%.3f, lon=%.3f, rise=%d, time_offset=%ld", t, lat, lon, rise, time_offset);
-  double n = t / 86400.0 - 10957.5, L = fmod(280.46 + 0.9856474 * n, 360) * 0.017453293;
-  double g = fmod(357.528 + 0.9856003 * n, 360) * 0.017453293, lam = L + 0.033423 * sin(g) + 0.000349 * sin(2*g);
-  double decl = asin(0.39782 * sin(lam)), EoT = 4 * (L * 57.295779 - atan2(0.91746 * sin(lam), cos(lam)) * 57.295779);
-  if (EoT > 720) EoT -= 1440; 
-  if (EoT < -720) EoT += 1440;
-  double cosh = (sin(-0.014544) - sin(lat * 0.017453293) * sin(decl)) / (cos(lat * 0.017453293) * cos(decl));
-  if (cosh < -1 || cosh > 1) return String(cosh < -1 ? "No sunset" : "No sunrise");
-  double h = acos(cosh) * 57.295779, stime = fmod(12 - lon/15 - EoT/60 + (rise ? -h : h)/15 + 24, 24);
-  t = (t/86400)*86400 + (unsigned long)(stime * 3600) + time_offset;
-  char buf[32]; 
-  snprintf(buf, 32, "%02d:%02d:%02d", (int)(t%86400)/3600, (int)(t%3600)/60, (int)t%60);
-  return String(buf);
+    constexpr double ZENITH = 90.833; 
+    time_t rawtime = (time_t)t;
+    struct tm * ptm = gmtime(&rawtime);
+    int year = ptm->tm_year + 1900;
+    int month = ptm->tm_mon + 1;
+    int day = ptm->tm_mday;
+    int N1 = floor(275 * month / 9);
+    int N2 = floor((month + 9) / 12);
+    int N3 = (1 + floor((year - 4 * floor(year / 4) + 2) / 3));
+    int N = N1 - (N2 * N3) + day - 30;
+    double lngHour = lon / 15.0;
+    double t_approx = rise ? N + ((6 - lngHour) / 24.0)  : N + ((18 - lngHour) / 24.0);
+    double M = (0.9856 * t_approx) - 3.289;
+    double L = M + (1.916 * sin(DEG_TO_RAD * M)) + (0.020 * sin(2 * DEG_TO_RAD * M)) + 282.634;
+    if (L >= 360.0) L -= 360.0;
+    if (L < 0.0) L += 360.0;
+    double RA = RAD_TO_DEG * atan(0.91764 * tan(DEG_TO_RAD * L));
+    if (RA < 0.0) RA += 360.0;
+    if (RA >= 360.0) RA -= 360.0;
+    double Lquadrant  = floor(L / 90.0) * 90.0;
+    double RAquadrant = floor(RA / 90.0) * 90.0;
+    RA = RA + (Lquadrant - RAquadrant);
+    RA /= 15.0; 
+    double sinDec = 0.39782 * sin(DEG_TO_RAD * L);
+    double cosDec = cos(asin(sinDec));
+    double cosH = (cos(DEG_TO_RAD * ZENITH) - (sinDec * sin(DEG_TO_RAD * lat))) / (cosDec * cos(DEG_TO_RAD * lat));
+    if (cosH > 1)  return String("No sunrise"); 
+    if (cosH < -1) return String("No sunset");  
+    double H = rise ? 360.0 - RAD_TO_DEG * acos(cosH) : RAD_TO_DEG * acos(cosH);
+    H /= 15.0;
+    double T = H + RA - (0.06571 * t_approx) - 6.622;
+    double UT = T - lngHour;
+    while (UT < 0) UT += 24.0;
+    while (UT >= 24) UT -= 24.0;
+    unsigned long event_sec = (unsigned long)(UT * 3600);
+    if (time_offset != 0) {
+        long event_local = (long)event_sec + (time_offset % 86400);
+        if (event_local < 0) event_local += 86400;
+        if (event_local >= 86400) event_local -= 86400;
+        event_sec = (unsigned long)event_local;
+    }
+    char buf[16];
+    snprintf(buf, sizeof(buf), "%02u:%02u:%02u", (unsigned)(event_sec/3600), (unsigned)((event_sec%3600)/60), (unsigned)(event_sec%60));
+    return String(buf);
 }
 
 // Update time and date display
 void update_time_cb(lv_timer_t *timer) {
-  if (WiFi.status() != WL_CONNECTED) return; // Exit if not connected to WiFi
+  if (WiFi.status() != WL_CONNECTED) return;  // Exit if not connected to WiFi
   timeClient.update();
-  unsigned long epochtime = timeClient.getEpochTime();
-    update_label(ui.lblTimeDate, LV_SYMBOL_LIST " %s %s", getFormattedTime(epochtime).c_str(), getFormattedDate(epochtime).c_str());
-    if (ui.lblBigTime && ui.lblBigDate) {
-      lv_label_set_text_fmt(ui.lblBigTime, "%s", getFormattedTime(epochtime).c_str());
-      lv_label_set_text_fmt(ui.lblBigDate, "%s", getFormattedDate(epochtime).c_str());
+  weather.epochtime  = timeClient.getEpochTime();
+  update_label(ui.lblTimeDate, LV_SYMBOL_LIST " %s %s", getFormattedTime(weather.epochtime).c_str(), getFormattedDate(weather.epochtime).c_str());
+  lv_label_set_text_fmt(ui.lblBigTime, "%s", getFormattedTime(weather.epochtime).c_str());
+  lv_label_set_text_fmt(ui.lblBigDate, "%s", getFormattedDate(weather.epochtime).c_str());
+  if (weather.weather_is_valid ) {
+    weather.data_age_min = (weather.epochtime - config.time_offset - weather.obsTime) / 60;
+    update_label(ui.lblDataAge, LV_SYMBOL_REFRESH " %lu min ago", weather.data_age_min);
     }
+  //log_i("weather.epochtime: %lu, config.time_offset %ld, weather.obsTime %lu, weather.data_age_min: %d", weather.epochtime, config.time_offset, weather.obsTime, weather.data_age_min);
 }
 
 // Update weather data display with enhanced visuals
 void update_weather_cb(lv_timer_t *timer) {
   weather.weather_is_valid = weatherData();
-  weather.UTC_Offset_is_valid = getUtcOffset(weather.lat, weather.lon, config.time_offset);
-  if (weather.UTC_Offset_is_valid==false) config.time_offset = 0;
+  weather.UTC_Offset_is_valid = getUtcOffset(weather.lat, weather.lon, weather.time_offset);
+  if (!weather.UTC_Offset_is_valid) weather.time_offset = 0;
   // Update weather data with icons
   update_label(ui.lblTemperature, LV_SYMBOL_BATTERY_3 " %d°C", weather.temperature);
   update_label(ui.lblHumidity, LV_SYMBOL_TINT " %d%%", weather.relative_humidity);
   update_label(ui.lblWindSpeed, LV_SYMBOL_GPS " %d km/h", weather.wind_speed_kmh);
   update_label(ui.lblPressure, LV_SYMBOL_POWER " %d hPa", weather.pressure);
   update_label(ui.lblAirportName, LV_SYMBOL_HOME " %s", weather.airport_name);
-  if (timeClient.isTimeSet() && weather.obsTime > 0) {
-    unsigned long epochtime = timeClient.getEpochTime();
-    unsigned long data_age_min = (epochtime - config.time_offset - weather.obsTime) / 60;
-    update_label(ui.lblDataAge, LV_SYMBOL_REFRESH " %lu min ago", data_age_min);
-    log_i("Temperature: %d", (int)weather.temperature);
-    log_i("Relative humidity: %d%%", (int)weather.relative_humidity);
-    log_i("Wind speed: %d km/h", (int)weather.wind_speed_kmh);
-    log_i("Pressure: %d hPa", (int)weather.pressure);
-    log_i("Data age: %u min", data_age_min);
-    log_i("Epochtime: %u sec", epochtime);
+    if (weather.weather_is_valid) {
+     
       // Calculate and display sunrise/sunset
-    if (weather.lat != 0 && weather.lon != 0) {
-      weather.sunrise = sun_event(epochtime, weather.lat, weather.lon, true, config.time_offset);
-      weather.sunset = sun_event(epochtime, weather.lat, weather.lon, false, config.time_offset);
+      weather.sunrise = sun_event(weather.epochtime, weather.lat, weather.lon, true, weather.time_offset);
+      weather.sunset = sun_event(weather.epochtime, weather.lat, weather.lon, false, weather.time_offset);
       log_i("Next sunrise: %s", weather.sunrise.c_str());
       log_i("Next sunset: %s", weather.sunset.c_str());
       update_label(ui.lblSunrise, LV_SYMBOL_UP " %s", weather.sunrise.c_str());
@@ -640,11 +672,9 @@ void update_weather_cb(lv_timer_t *timer) {
     } else {
       update_label(ui.lblSunrise, LV_SYMBOL_UP " --:--");
       update_label(ui.lblSunset, LV_SYMBOL_DOWN " --:--");
-    }
-  } else {
-    update_label(ui.lblDataAge, LV_SYMBOL_REFRESH " -- min ago");
-    update_label(ui.lblSunrise, LV_SYMBOL_UP " --:--");
-    update_label(ui.lblSunset, LV_SYMBOL_DOWN " --:--");
+      update_label(ui.lblDataAge, LV_SYMBOL_REFRESH " -- min ago");
+      update_label(ui.lblSunrise, LV_SYMBOL_UP " --:--");
+      update_label(ui.lblSunset, LV_SYMBOL_DOWN " --:--");
   }
 }
 
