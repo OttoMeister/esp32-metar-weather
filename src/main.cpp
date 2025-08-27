@@ -8,7 +8,10 @@ https://formatter.org/cpp-formatter
 
 // TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO 
 
-Use StaticJsonDocument with a fixed size (e.g., StaticJsonDocument<512> doc;) instead of dynamic JsonDocument to prevent heap fragmentation on ESP32. Avoid large stack buffers (e.g., char buffer[128] in update_label is fine, but profile with ESP.getFreeHeap() logs). Free resources explicitly (e.g., call http.end() in all paths, even on success).
+Use StaticJsonDocument with a fixed size (e.g., StaticJsonDocument<512> doc;) instead of dynamic JsonDocument to prevent heap fragmentation on ESP32. Avoid large stack buffers (e.g., char buffer[128] in update_label is fine, but profile with ESP.getFreeHeap() logs). Free resources explicitly (e.g., call http.end() in all paths, even on success). Use fixed-size buffers instead of dynamic String objects.
+
+Replace String with fixed-size char[] buffers. Keep logic the same.
+
 
 Add wind direction (from METAR "wdir") and gusts if available. Fetch additional data like visibility, cloud cover, or flight category (VFR/IFR) from the API. Integrate forecasts: Use NOAA's API for TAF (Terminal Aerodrome Forecast) alongside METAR.
 
@@ -94,17 +97,33 @@ struct {
   bool utcOffsetIsValid = false;
 } weather;
 
-// Normalize string by replacing accented characters
-String normalizeString(String str) {
-  static const char *replacements[][2] = {
-      {"á", "a"}, {"à", "a"}, {"â", "a"},  {"ã", "a"},  {"ä", "ae"}, {"æ", "ae"}, {"Á", "A"},  {"À", "A"},  {"Â", "A"},  {"Ã", "A"},  {"Ä", "Ae"}, {"Æ", "AE"},
-      {"é", "e"}, {"è", "e"}, {"ê", "e"},  {"ë", "e"},  {"É", "E"},  {"È", "E"},  {"Ê", "E"},  {"Ë", "E"},  {"í", "i"},  {"ì", "i"},  {"î", "i"},  {"ï", "i"},
-      {"Í", "I"}, {"Ì", "I"}, {"Î", "I"},  {"Ï", "I"},  {"ó", "o"},  {"ò", "o"},  {"ô", "o"},  {"õ", "o"},  {"ö", "oe"}, {"œ", "oe"}, {"Ó", "O"},  {"Ò", "O"},
-      {"Ô", "O"}, {"Õ", "O"}, {"Ö", "Oe"}, {"Œ", "OE"}, {"ú", "u"},  {"ù", "u"},  {"û", "u"},  {"ü", "ue"}, {"Ú", "U"},  {"Ù", "U"},  {"Û", "U"},  {"Ü", "Ue"},
-      {"ñ", "n"}, {"Ñ", "N"}, {"ç", "c"},  {"Ç", "C"},  {"ÿ", "y"},  {"Ÿ", "Y"},  {"ß", "ss"}, {"ẞ", "SS"}};
-  String result = str;
-  for (auto &pair : replacements) result.replace(pair[0], pair[1]);
-  return result;
+// Normalize string by replacing accented characters in-place
+char *normalizeString(char *str) {
+  static const char *rep[][2] = {
+    {"á","a"},{"à","a"},{"â","a"},{"ã","a"},{"ä","a"},{"æ","a"},{"Á","A"},{"À","A"},
+    {"Â","A"},{"Ã","A"},{"Ä","A"},{"Æ","A"},
+    {"é","e"},{"è","e"},{"ê","e"},{"ë","e"},{"É","E"},{"È","E"},{"Ê","E"},{"Ë","E"},
+    {"í","i"},{"ì","i"},{"î","i"},{"ï","i"},{"Í","I"},{"Ì","I"},{"Î","I"},{"Ï","I"},
+    {"ó","o"},{"ò","o"},{"ô","o"},{"õ","o"},{"ö","o"},{"œ","o"},{"Ó","O"},{"Ò","O"},
+    {"Ô","O"},{"Õ","O"},{"Ö","O"},{"Œ","O"},
+    {"ú","u"},{"ù","u"},{"û","u"},{"ü","u"},{"Ú","U"},{"Ù","U"},{"Û","U"},{"Ü","U"},
+    {"ñ","n"},{"Ñ","N"},{"ç","c"},{"Ç","C"},{"ÿ","y"},{"Ÿ","Y"},{"ß","s"},{"ẞ","S"}
+  };   
+  for (char* p = str; *p;) {
+    int replaced = 0;
+    for (size_t i = 0; i < sizeof(rep) / sizeof(rep[0]); i++) {
+      size_t l = strlen(rep[i][0]);
+      if (!strncmp(p, rep[i][0], l)) {
+        *p = *rep[i][1];
+        memmove(p + 1, p + l, strlen(p + l) + 1);
+        replaced = 1;
+        break;
+      }
+    }
+    if (!replaced)
+      p++;
+  }
+  return str;
 }
 
 // Update label text with formatted string
@@ -524,9 +543,9 @@ bool fetchWeatherData() {
   float t = weather.temperature, d = weather.dewPoint;
   weather.relativeHumidity = 100 * exp((17.625 * d) / (243.04 + d)) / exp((17.625 * t) / (243.04 + t));
   const char *name = obj["name"] | "Unknown";
-  String normalized = normalizeString(name);
-  strncpy(weather.airportName, normalized.c_str(), sizeof(weather.airportName) - 1);
+  strncpy(weather.airportName, name, sizeof(weather.airportName) - 1);
   weather.airportName[sizeof(weather.airportName) - 1] = '\0';
+  normalizeString(weather.airportName);  
   log_i("METAR updated: T=%d°C, WS=%dkmh, P=%dhPa, RH=%d%% Lat=%.3f,Lon=%.3f", weather.temperature, weather.windSpeedKmh, weather.pressure,
         weather.relativeHumidity, weather.lat, weather.lon);
   log_i("Last update was =%lus, Data age =%dmin", weather.epochTime - weather.timeOfLastUpdate, weather.dataAgeMin);
@@ -601,7 +620,7 @@ String getFormattedTime(unsigned long epoch) {
 }
 
 String sunEvent(unsigned long timeStamp, float lat, float lon, bool isRise, long timeOffset) {
-  log_i("Time: %s %s", getFormattedTime(timeStamp).c_str(), getFormattedDate(timeStamp).c_str());
+  //log_i("Time: %s %s", getFormattedTime(timeStamp).c_str(), getFormattedDate(timeStamp).c_str());
   log_i("Sun_event input: t=%lu, lat=%.3f, lon=%.3f, rise=%d, time_offset=%ld", timeStamp, lat, lon, isRise, timeOffset);
   constexpr double ZENITH = 90.833;
   time_t rawTime = (time_t)timeStamp;
@@ -673,8 +692,7 @@ void updateWeatherCallback(lv_timer_t *timer) {
     if (weather.utcOffsetIsValid) {
       weather.sunrise = sunEvent(weather.epochTime, weather.lat, weather.lon, true, weather.localTimeOffset);
       weather.sunset = sunEvent(weather.epochTime, weather.lat, weather.lon, false, weather.localTimeOffset);
-      log_i("Next sunrise: %s", weather.sunrise.c_str());
-      log_i("Next sunset: %s", weather.sunset.c_str());
+      log_i("Next sunrise: %s, Next sunset: %s", weather.sunrise.c_str(), weather.sunset.c_str());
     } else
       weather.localTimeOffset = 0;
   }
@@ -738,25 +756,5 @@ void loop() {
   lv_timer_handler();
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+// END END END END END END END END END END END END END END END END END END END END END END END END END END END END END
+// END END END END END END END END END END END END END END END END END END END END END END END END END END END END END
