@@ -7,20 +7,16 @@ pio run --monitor-port /dev/ttyUSB0 -t monitor
 https://formatter.org/cpp-formatter
 
 // TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO 
-
-Use StaticJsonDocument with a fixed size (e.g., StaticJsonDocument<512> doc;) instead of dynamic JsonDocument to prevent heap fragmentation on ESP32. Avoid large stack buffers (e.g., char buffer[128] in update_label is fine, but profile with ESP.getFreeHeap() logs). Free resources explicitly (e.g., call http.end() in all paths, even on success). Use fixed-size buffers instead of dynamic String objects.
-
-Replace String with fixed-size char[] buffers. Keep logic the same.
-
-
+Use fixed-size buffers instead of dynamic String objects and minimize global variables.
+Break down this large ESP32 weather station code into smaller, more manageable files while keeping all the logic intact. Provide the complete implementation for any of these specific files
 Add wind direction (from METAR "wdir") and gusts if available. Fetch additional data like visibility, cloud cover, or flight category (VFR/IFR) from the API. Integrate forecasts: Use NOAA's API for TAF (Terminal Aerodrome Forecast) alongside METAR.
-
 Multi-Airport Support: Allow multiple METAR IDs in settings (e.g., via a dropdown), cycle through them.
-
 OTA Updates: Integrate ArduinoOTA for wireless firmware updates.
-
 Internationalization: Support non-English airports by handling UTF-8 in labels (LVGL supports it).
 */
+
+
+
 
 #include <Arduino.h>
 #include <ArduinoJson.h>
@@ -33,8 +29,10 @@ Internationalization: Support non-English airports by handling UTF-8 in labels (
 #include <math.h>
 #include <strings.h>
 #include <cmath>
+#include <ctype.h>
 
-struct  {
+// UI elements structure
+struct UiElements {
   lv_obj_t *mainScreen;
   lv_obj_t *mainPanel;
   lv_obj_t *temperatureLabel;
@@ -57,10 +55,11 @@ struct  {
   lv_obj_t *keyboard;
 } uiElements;
 
-struct  {
-  char ssid[64] = "";
-  char password[64] = "";
-  char metarId[10] = "";
+// Configuration structure
+struct Config {
+  char ssid[64] = {0};
+  char password[64] = {0};
+  char metarId[10] = {0};
   long timeOffset = 0;
 } config;
 
@@ -70,16 +69,16 @@ NTPClient timeClient(ntpUdp);
 
 enum WifiState { DISCONNECTED, CONNECTING, CONNECTED, RECONNECTING };
 
-struct {
+struct WifiManagement {
   WifiState state = DISCONNECTED;
   unsigned long lastConnectAttempt = 0;
   unsigned long connectStartTime = 0;
 } wifiManagement;
 
-struct {
-  String sunrise;
-  String sunset;
-  char airportName[100] = "";
+struct Weather {
+  char sunrise[9] = {0};
+  char sunset[9] = {0};
+  char airportName[100] = {0};
   float lat = 0;
   float lon = 0;
   unsigned long obsTime = 0;
@@ -96,6 +95,16 @@ struct {
   bool weatherIsValid = false;
   bool utcOffsetIsValid = false;
 } weather;
+
+// Trim whitespace from string in-place
+void trim(char *str) {
+  char *start = str;
+  while (isspace((unsigned char)*start)) start++;
+  size_t len = strlen(start);
+  while (len > 0 && isspace((unsigned char)start[len - 1])) len--;
+  start[len] = '\0';
+  memmove(str, start, len + 1);
+}
 
 // Normalize string by replacing accented characters in-place
 char *normalizeString(char *str) {
@@ -169,15 +178,24 @@ void settingsButtonEvent(lv_event_t *e) {
 
 void backButtonEvent(lv_event_t *e) {
   if (lv_event_get_code(e) == LV_EVENT_CLICKED) {
-    String tempSsid = lv_textarea_get_text(uiElements.ssidTextArea);
-    tempSsid.trim();
-    strlcpy(config.ssid, tempSsid.c_str(), sizeof(config.ssid));
-    strlcpy(config.password, lv_textarea_get_text(uiElements.passwordTextArea) ? lv_textarea_get_text(uiElements.passwordTextArea) : "", sizeof(config.password));
-    String rawMetar = lv_textarea_get_text(uiElements.metarIdTextArea);
-    rawMetar.trim();
-    rawMetar.toUpperCase();
-    strlcpy(config.metarId, rawMetar.substring(0, 4).c_str(), sizeof(config.metarId));
-    config.timeOffset = lv_textarea_get_text(uiElements.timeOffsetTextArea) ? strtol(lv_textarea_get_text(uiElements.timeOffsetTextArea), nullptr, 10) : 0;
+    char tempBuf[64];
+    strlcpy(tempBuf, lv_textarea_get_text(uiElements.ssidTextArea), sizeof(tempBuf));
+    trim(tempBuf);
+    strlcpy(config.ssid, tempBuf, sizeof(config.ssid));
+
+    strlcpy(tempBuf, lv_textarea_get_text(uiElements.passwordTextArea), sizeof(tempBuf));
+    trim(tempBuf);
+    strlcpy(config.password, tempBuf, sizeof(config.password));
+
+    char metarBuf[10];
+    strlcpy(metarBuf, lv_textarea_get_text(uiElements.metarIdTextArea), sizeof(metarBuf));
+    trim(metarBuf);
+    for (char *p = metarBuf; *p; p++) *p = toupper((unsigned char)*p);
+    strlcpy(config.metarId, metarBuf, 5);  // First 4 characters
+
+    const char *offsetText = lv_textarea_get_text(uiElements.timeOffsetTextArea);
+    config.timeOffset = strtol(offsetText, nullptr, 10);
+
     saveConfigurations();
     timeClient.setTimeOffset(config.timeOffset);
     lv_disp_load_scr(uiElements.mainScreen);
@@ -202,7 +220,9 @@ void wifiManagementCallback(lv_timer_t *timer) {
       case CONNECTING:
         if (WiFi.status() == WL_CONNECTED) {
           wifiManagement.state = CONNECTED;
-          log_i("WiFi: Connected to %s with %d dBm", WiFi.SSID().c_str(), WiFi.RSSI());
+          char ssidBuf[64];
+          strlcpy(ssidBuf, WiFi.SSID().c_str(), sizeof(ssidBuf));
+          log_i("WiFi: Connected to %s with %d dBm", ssidBuf, WiFi.RSSI());
         } else if (millis() - wifiManagement.connectStartTime >= 10000) {
           log_i("WiFi connection timeout");
           WiFi.disconnect();
@@ -216,8 +236,11 @@ void wifiManagementCallback(lv_timer_t *timer) {
           wifiManagement.state = RECONNECTING;
           log_i("WiFi connection lost");
           updateLabel(uiElements.wifiStatusLabel, LV_SYMBOL_CLOSE " Connection Lost");
-        } else
-          updateLabel(uiElements.wifiStatusLabel, LV_SYMBOL_WIFI " %s", WiFi.SSID().c_str());
+        } else {
+          char ssidBuf[64];
+          strlcpy(ssidBuf, WiFi.SSID().c_str(), sizeof(ssidBuf));
+          updateLabel(uiElements.wifiStatusLabel, LV_SYMBOL_WIFI " %s", ssidBuf);
+        }
         break;
       case RECONNECTING:
         if (millis() - wifiManagement.lastConnectAttempt >= 10000) {
@@ -303,7 +326,6 @@ lv_obj_t *createGradientButton(lv_obj_t *parent, int x, int y, int w, int h, con
   lv_obj_t *btn = lv_button_create(parent);
   lv_obj_set_size(btn, w, h);
   lv_obj_set_pos(btn, x, y);
-
   // Button styling
   lv_obj_set_style_bg_color(btn, lv_color_hex(0x3366ff), LV_PART_MAIN);
   lv_obj_set_style_bg_grad_color(btn, lv_color_hex(0x1a4dff), LV_PART_MAIN);
@@ -314,7 +336,6 @@ lv_obj_t *createGradientButton(lv_obj_t *parent, int x, int y, int w, int h, con
   lv_obj_set_style_shadow_width(btn, 4, LV_PART_MAIN);
   lv_obj_set_style_shadow_color(btn, lv_color_black(), LV_PART_MAIN);
   lv_obj_set_style_shadow_opa(btn, LV_OPA_30, LV_PART_MAIN);
-
   // Pressed state
   lv_obj_set_style_bg_color(btn, lv_color_hex(0x1a4dff), LV_PART_MAIN | LV_STATE_PRESSED);
   lv_obj_set_style_bg_grad_color(btn, lv_color_hex(0x0d33cc), LV_PART_MAIN | LV_STATE_PRESSED);
@@ -322,19 +343,15 @@ lv_obj_t *createGradientButton(lv_obj_t *parent, int x, int y, int w, int h, con
   // Label with icon
   lv_obj_t *lbl = lv_label_create(btn);
   lv_obj_center(lbl);
-
   char fullText[64];
   if (icon)
     snprintf(fullText, sizeof(fullText), "%s %s", icon, text);
   else
     strlcpy(fullText, text, sizeof(fullText));
-
   lv_label_set_text(lbl, fullText);
   lv_obj_set_style_text_color(lbl, lv_color_white(), LV_PART_MAIN);
   lv_obj_set_style_text_font(lbl, LV_FONT_DEFAULT, LV_PART_MAIN);
-
   if (eventCb) lv_obj_add_event_cb(btn, eventCb, LV_EVENT_ALL, NULL);
-
   return btn;
 }
 
@@ -357,17 +374,13 @@ lv_obj_t *createModernTextArea(lv_obj_t *parent, int x, int y, int w, int h, boo
   lv_obj_set_style_border_width(ta, 1, LV_PART_MAIN);
   lv_obj_set_style_border_color(ta, lv_color_hex(0x444444), LV_PART_MAIN);
   lv_obj_set_style_pad_all(ta, 8, LV_PART_MAIN);
-
   // Focus styling
   lv_obj_set_style_border_color(ta, lv_color_hex(0x3366ff), LV_PART_MAIN | LV_STATE_FOCUSED);
   lv_obj_set_style_border_width(ta, 2, LV_PART_MAIN | LV_STATE_FOCUSED);
-
   // Cursor styling
   lv_obj_set_style_bg_color(ta, lv_color_white(), LV_PART_CURSOR);
-
   if (eventCb) lv_obj_add_event_cb(ta, eventCb, LV_EVENT_ALL, NULL);
   lv_textarea_set_text(ta, initialText);
-
   return ta;
 }
 
@@ -448,7 +461,9 @@ void settingScreenInit(void) {
   uiElements.metarIdTextArea = createModernTextArea(formCard, 0, 100, 300, 35, true, false, metarIdTextAreaEvent, config.metarId, "e.g. KJFK");
   lv_obj_t *offsetLabel = createStyledLabel(formCard, 360, 75, "Time Offset (seconds):");
   lv_obj_set_style_text_color(offsetLabel, lv_color_hex(0xcccccc), LV_PART_MAIN);
-  uiElements.timeOffsetTextArea = createModernTextArea(formCard, 360, 100, 300, 35, true, false, timeOffsetTextAreaEvent, String(config.timeOffset).c_str(), "UTC offset");
+  char offsetBuf[12];
+  snprintf(offsetBuf, sizeof(offsetBuf), "%ld", config.timeOffset);
+  uiElements.timeOffsetTextArea = createModernTextArea(formCard, 360, 100, 300, 35, true, false, timeOffsetTextAreaEvent, offsetBuf, "UTC offset");
   // Help card
   lv_obj_t *helpCard = createCard(uiElements.settingScreen, 5, 430, 790, 45);
   lv_obj_t *helpTitle = createStyledLabel(helpCard, 0, -5, "Help:", nullptr);
@@ -496,20 +511,19 @@ bool fetchWeatherData() {
   http.setReuse(false);
   int httpCode = http.GET();
   if (httpCode != 200) {
-    String errorResponse = http.getString();
-    log_i("HTTP request failed with code: %d, Response: %s", httpCode, errorResponse.substring(0, 200).c_str());
+    char errorBuf[201] = {0};
+    int len = http.getStream().readBytes((uint8_t*)errorBuf, 200);
+    errorBuf[len] = '\0';
+    log_i("HTTP request failed with code: %d, Response: %s", httpCode, errorBuf);
     http.end();
     return false;
   }
-  String responseStr = http.getString();
-  if (responseStr.length() == 0) {
-    log_i("Empty response received");
-    http.end();
-    return false;
-  }
+  String response = http.getString();
+  //log_i("Raw API response: %s", response.c_str());
   http.end();
   JsonDocument doc;
-  DeserializationError error = deserializeJson(doc, responseStr);
+  DeserializationError error = deserializeJson(doc, response);
+  http.end();
   if (error) {
     log_i("JSON parsing failed: %s", error.c_str());
     return false;
@@ -524,8 +538,8 @@ bool fetchWeatherData() {
     return false;
   }
   const char *newId = obj["icaoId"];
-  if (strcmp(newId, config.metarId) != 0) {
-    log_i("METAR ID mismatch: %s vs %s", newId, config.metarId);
+if (strcmp(newId, config.metarId) != 0) {
+    log_i("METAR ID mismatch: expected '%s', got '%s'", config.metarId, newId);
     return false;
   }
   weather.temperature = obj["temp"] | 0;
@@ -578,10 +592,12 @@ bool getUtcOffset(float lat, float lon, long &offsetSeconds) {
     http.end();
     return false;
   }
-  String payload = http.getString();
+  String response = http.getString();
+  //log_i("Raw API response: %s", response.c_str());
   http.end();
   JsonDocument doc;
-  DeserializationError err = deserializeJson(doc, payload);
+  DeserializationError err = deserializeJson(doc, response);
+  http.end();
   if (err) {
     log_i("Failed to parse JSON: %s", err.c_str());
     return false;
@@ -600,27 +616,22 @@ bool getUtcOffset(float lat, float lon, long &offsetSeconds) {
 }
 
 #define LEAP_YEAR(Y) ((Y > 0) && !(Y % 4) && ((Y % 100) || !(Y % 400)))
-String getFormattedDate(unsigned long epoch) {
+void getFormattedDate(unsigned long epoch, char *buffer, size_t size) {
   unsigned long days = epoch / 86400L, totalDays = 0;
   int year = 1970, month = 0;
   static const uint8_t monthDays[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
   while ((totalDays += LEAP_YEAR(year) ? 366 : 365) <= days) year++;
   days -= totalDays - (LEAP_YEAR(year) ? 366 : 365);
   for (; month < 12 && days >= (month == 1 && LEAP_YEAR(year) ? 29 : monthDays[month]); month++) days -= month == 1 && LEAP_YEAR(year) ? 29 : monthDays[month];
-  char buffer[20];
-  snprintf(buffer, sizeof(buffer), "%02lu-%02d-%04d", days + 1, month + 1, year);
-  return String(buffer);
+  snprintf(buffer, size, "%02lu.%02d.%04d", days + 1, month + 1, year);
 }
 
-String getFormattedTime(unsigned long epoch) {
+void getFormattedTime(unsigned long epoch, char *buffer, size_t size) {
   unsigned long timeSeconds = epoch % 86400;
-  char buffer[9];
-  snprintf(buffer, sizeof(buffer), "%02u:%02u:%02u", (uint)(timeSeconds / 3600), (uint)((timeSeconds % 3600) / 60), (uint)(timeSeconds % 60));
-  return String(buffer);
+  snprintf(buffer, size, "%02u:%02u:%02u", (uint)(timeSeconds / 3600), (uint)((timeSeconds % 3600) / 60), (uint)(timeSeconds % 60));
 }
 
-String sunEvent(unsigned long timeStamp, float lat, float lon, bool isRise, long timeOffset) {
-  //log_i("Time: %s %s", getFormattedTime(timeStamp).c_str(), getFormattedDate(timeStamp).c_str());
+void sunEvent(unsigned long timeStamp, float lat, float lon, bool isRise, long timeOffset, char *result, size_t resultSize) {
   log_i("Sun_event input: t=%lu, lat=%.3f, lon=%.3f, rise=%d, time_offset=%ld", timeStamp, lat, lon, isRise, timeOffset);
   constexpr double ZENITH = 90.833;
   time_t rawTime = (time_t)timeStamp;
@@ -648,8 +659,14 @@ String sunEvent(unsigned long timeStamp, float lat, float lon, bool isRise, long
   double sinDec = 0.39782 * sin(DEG_TO_RAD * trueLong);
   double cosDec = cos(asin(sinDec));
   double cosH = (cos(DEG_TO_RAD * ZENITH) - (sinDec * sin(DEG_TO_RAD * lat))) / (cosDec * cos(DEG_TO_RAD * lat));
-  if (cosH > 1) return String("No sunrise");
-  if (cosH < -1) return String("No sunset");
+  if (cosH > 1) {
+    strlcpy(result, "No sunrise", resultSize);
+    return;
+  }
+  if (cosH < -1) {
+    strlcpy(result, "No sunset", resultSize);
+    return;
+  }
   double hourAngle = isRise ? 360.0 - RAD_TO_DEG * acos(cosH) : RAD_TO_DEG * acos(cosH);
   hourAngle /= 15.0;
   double localMeanTime = hourAngle + rightAsc - (0.06571 * approxTime) - 6.622;
@@ -663,9 +680,7 @@ String sunEvent(unsigned long timeStamp, float lat, float lon, bool isRise, long
     if (eventLocal >= 86400) eventLocal -= 86400;
     eventSec = (unsigned long)eventLocal;
   }
-  char buf[16];
-  snprintf(buf, sizeof(buf), "%02u:%02u:%02u", (unsigned)(eventSec / 3600), (unsigned)((eventSec % 3600) / 60), (unsigned)(eventSec % 60));
-  return String(buf);
+  snprintf(result, resultSize, "%02u:%02u:%02u", (unsigned)(eventSec / 3600), (unsigned)((eventSec % 3600) / 60), (unsigned)(eventSec % 60));
 }
 
 // Update time and date display
@@ -673,15 +688,17 @@ void updateTimeCallback(lv_timer_t *timer) {
   if (WiFi.status() != WL_CONNECTED) return;  // Exit if not connected to WiFi
   timeClient.update();
   weather.epochTime = timeClient.getEpochTime();
-  updateLabel(uiElements.timeDateLabel, LV_SYMBOL_LIST " %s %s", getFormattedTime(weather.epochTime).c_str(), getFormattedDate(weather.epochTime).c_str());
-  lv_label_set_text_fmt(uiElements.bigTimeLabel, "%s", getFormattedTime(weather.epochTime).c_str());
-  lv_label_set_text_fmt(uiElements.bigDateLabel, "%s", getFormattedDate(weather.epochTime).c_str());
+  char timeBuf[9];
+  char dateBuf[11];
+  getFormattedTime(weather.epochTime, timeBuf, sizeof(timeBuf));
+  getFormattedDate(weather.epochTime, dateBuf, sizeof(dateBuf));
+  updateLabel(uiElements.timeDateLabel, LV_SYMBOL_LIST " %s %s", timeBuf, dateBuf);
+  lv_label_set_text_fmt(uiElements.bigTimeLabel, "%s", timeBuf);
+  lv_label_set_text_fmt(uiElements.bigDateLabel, "%s", dateBuf);
   if (weather.weatherIsValid) {
     weather.dataAgeMin = (weather.epochTime - config.timeOffset - weather.obsTime) / 60;
     updateLabel(uiElements.dataAgeLabel, LV_SYMBOL_REFRESH " %lu min ago", weather.dataAgeMin);
   }
-  // log_i("weather.epochtime: %lu, config.time_offset %ld, weather.obsTime %lu, weather.data_age_min: %d", weather.epochTime, config.timeOffset,
-  // weather.obsTime, weather.dataAgeMin);
 }
 
 // Update weather data display with enhanced visuals
@@ -690,9 +707,9 @@ void updateWeatherCallback(lv_timer_t *timer) {
     weather.weatherIsValid = fetchWeatherData();
     weather.utcOffsetIsValid = getUtcOffset(weather.lat, weather.lon, weather.localTimeOffset);
     if (weather.utcOffsetIsValid) {
-      weather.sunrise = sunEvent(weather.epochTime, weather.lat, weather.lon, true, weather.localTimeOffset);
-      weather.sunset = sunEvent(weather.epochTime, weather.lat, weather.lon, false, weather.localTimeOffset);
-      log_i("Next sunrise: %s, Next sunset: %s", weather.sunrise.c_str(), weather.sunset.c_str());
+      sunEvent(weather.epochTime, weather.lat, weather.lon, true, weather.localTimeOffset, weather.sunrise, sizeof(weather.sunrise));
+      sunEvent(weather.epochTime, weather.lat, weather.lon, false, weather.localTimeOffset, weather.sunset, sizeof(weather.sunset));
+      log_i("Next sunrise: %s, Next sunset: %s", weather.sunrise, weather.sunset);
     } else
       weather.localTimeOffset = 0;
   }
@@ -704,8 +721,8 @@ void updateWeatherCallback(lv_timer_t *timer) {
   updateLabel(uiElements.airportNameLabel, LV_SYMBOL_HOME " %s", weather.airportName);
   if (weather.weatherIsValid && weather.utcOffsetIsValid) {
     // Calculate and display sunrise/sunset
-    updateLabel(uiElements.sunriseLabel, LV_SYMBOL_UP " %s", weather.sunrise.c_str());
-    updateLabel(uiElements.sunsetLabel, LV_SYMBOL_DOWN " %s", weather.sunset.c_str());
+    updateLabel(uiElements.sunriseLabel, LV_SYMBOL_UP " %s", weather.sunrise);
+    updateLabel(uiElements.sunsetLabel, LV_SYMBOL_DOWN " %s", weather.sunset);
   } else {
     updateLabel(uiElements.sunriseLabel, LV_SYMBOL_UP " --:--");
     updateLabel(uiElements.sunsetLabel, LV_SYMBOL_DOWN " --:--");
@@ -727,7 +744,6 @@ void setup() {
   uint8_t macAddr[6];
   WiFi.macAddress(macAddr);
   chipId2 = (macAddr[3] << 16) | (macAddr[4] << 8) | macAddr[5];
-
   log_i("Chip ID1 (EFuse): %u", chipId1);
   log_i("Chip ID2 (Wi-Fi MAC): %u", chipId2);
   log_i("CPU: %s rev%d, CPU Freq: %d Mhz, %d core(s)", ESP.getChipModel(), ESP.getChipRevision(), getCpuFrequencyMhz(), ESP.getChipCores());
@@ -755,6 +771,3 @@ void loop() {
   lastLvTick = now;
   lv_timer_handler();
 }
-
-// END END END END END END END END END END END END END END END END END END END END END END END END END END END END END
-// END END END END END END END END END END END END END END END END END END END END END END END END END END END END END
